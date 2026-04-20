@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Allow direct script execution: `python core/rag/rag.py`
@@ -12,64 +13,85 @@ if __package__ is None or __package__ == "":
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-from core.embedding.embedding_service import EmbeddingService
-from core.embedding.redis_store import RedisVectorStore
+from core.rag.rag_graph import RagGraph
+from core.rag.schema import Message, RagState
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run semantic retrieval against Redis vector index")
-    parser.add_argument("--query", required=True, help="User query text to search semantically")
-    parser.add_argument("--top-k", type=int, default=10, help="Number of top results to return")
-    parser.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2", help="Embedding model name")
-    parser.add_argument("--device", default=None, help="Embedding device, e.g. cpu, cuda, cuda:0")
-    parser.add_argument("--redis-host", default="127.0.0.1", help="Redis host")
-    parser.add_argument("--redis-port", type=int, default=6379, help="Redis port")
-    parser.add_argument("--redis-db", type=int, default=0, help="Redis DB index")
-    parser.add_argument("--redis-password", default=None, help="Redis password if required")
-    parser.add_argument("--index-name", default="rag_chunks_idx", help="Redis vector index name")
+    parser = argparse.ArgumentParser(description="Run RAG phase nodes (currently Planner only)")
+    parser.add_argument("--phase", required=True, choices=["planner"], help="RAG phase to execute")
+    parser.add_argument("--query", required=True, help="User query text")
+    parser.add_argument("--session-id", default="local-session", help="Session id for traceable artifacts")
+    parser.add_argument(
+        "--chat-history-json",
+        default="[]",
+        help='JSON array for chat history, e.g. \'[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]\'',
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=r"e:\MyProject\providencetower-v2\data\rag_result",
+        help="Directory where JSON results will be written",
+    )
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser
+
+
+def _parse_history(raw_json: str) -> list[Message]:
+    parsed = json.loads(raw_json)
+    if not isinstance(parsed, list):
+        raise ValueError("--chat-history-json must be a JSON array")
+    history: list[Message] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        history.append(
+            Message(
+                role=str(item.get("role", "user")),
+                content=str(item.get("content", "")),
+            )
+        )
+    return history
+
+
+def _persist_output(output_dir: Path, session_id: str, phase: str, payload: dict) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe_session = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in session_id)
+    file_path = output_dir / f"{timestamp}__{safe_session}__{phase}.json"
+    payload["result_file"] = str(file_path)
+    file_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return file_path
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
-    )
+    logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 
-    if args.top_k < 1:
-        raise ValueError("--top-k must be >= 1")
+    output_dir = Path(args.output_dir)
+    try:
+        state = RagState(
+            session_id=args.session_id,
+            user_query=args.query,
+            phase=args.phase,
+            chat_history=_parse_history(args.chat_history_json),
+        )
+        graph = RagGraph(phase=args.phase)
+        result_state = graph.run(state)
+        output = {
+            "status": "ok",
+            "phase": args.phase,
+            "state": result_state.model_dump(),
+        }
+    except Exception as exc:
+        output = {
+            "status": "error",
+            "phase": args.phase,
+            "error_type": exc.__class__.__name__,
+            "error_message": str(exc),
+        }
 
-    embedder = EmbeddingService(model_name=args.model, device=args.device)
-    store = RedisVectorStore(
-        host=args.redis_host,
-        port=args.redis_port,
-        db=args.redis_db,
-        password=args.redis_password,
-        index_name=args.index_name,
-    )
-    if not store.ping():
-        raise RuntimeError(f"Cannot connect to Redis at {args.redis_host}:{args.redis_port}")
-
-    query_vector = embedder.embed_query(args.query)
-    search_results = store.search_similar(query_vector, top_k=args.top_k)
-
-    output = {
-        "query": args.query,
-        "top_k": args.top_k,
-        "results": [
-            {
-                "rank": idx + 1,
-                "score": item.score,
-                "key": item.key,
-                "metadata": item.metadata,
-                "text": item.text,
-            }
-            for idx, item in enumerate(search_results)
-        ],
-    }
+    _persist_output(output_dir, args.session_id, args.phase, output)
     print(json.dumps(output, indent=2, ensure_ascii=False))
 
 
