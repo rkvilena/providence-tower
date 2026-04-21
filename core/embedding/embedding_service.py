@@ -32,7 +32,7 @@ class EmbeddingService:
     def __init__(
         self,
         *,
-        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        model_name: str = "BAAI/bge-small-en-v1.5",
         device: str | None = None,
         batch_size: int = 256,
         normalize_embeddings: bool = True,
@@ -45,7 +45,6 @@ class EmbeddingService:
         torch.set_num_threads(4)
         
         self.model = SentenceTransformer(model_name, device=device)
-        self._chunk_block_pattern = re.compile(r"^##\s+Chunk\s+([^\n]+)\n(.*?)(?=^##\s+Chunk\s+|\Z)", re.MULTILINE | re.DOTALL)
         self._breadcrumb_pattern = re.compile(
             r"^\[Page:\s*(.*?)\]\[Section:\s*(.*?)\]\[Subsection:\s*(.*?)\]\s*(.*)$",
             re.DOTALL,
@@ -61,14 +60,18 @@ class EmbeddingService:
             documents.extend(self.load_documents_from_file(file_path))
         return documents
 
+    def filter_documents_for_embedding(self, documents: list[ChunkDocument]) -> list[ChunkDocument]:
+        return [document for document in documents if self._should_embed_document(document)]
+
     def load_documents_from_file(self, file_path: Path) -> list[ChunkDocument]:
         text = file_path.read_text(encoding="utf-8")
         fallback_page_id, fallback_title = self._extract_page_metadata_from_file(file_path.name)
         docs: list[ChunkDocument] = []
 
-        for match in self._chunk_block_pattern.finditer(text):
-            chunk_id = match.group(1).strip()
-            body = match.group(2).strip()
+        for chunk_block in re.split(r"(?m)^##\s+Chunk\s+", text)[1:]:
+            chunk_header, _, body = chunk_block.partition("\n")
+            chunk_id = chunk_header.strip()
+            body = body.strip()
             if not body:
                 continue
 
@@ -103,17 +106,27 @@ class EmbeddingService:
         return docs
 
     def embed_documents(self, documents: list[ChunkDocument]) -> np.ndarray:
-        if not documents:
+        eligible_documents = self.filter_documents_for_embedding(documents)
+        if not eligible_documents:
             return np.empty((0, 0), dtype=np.float32)
-        texts = [doc.text for doc in documents]
+        
+        # Prepend context (Page/Section/Subsection) to the text for better semantic signal
+        texts_to_embed = [
+            f"[Page: {doc.page_title}][Section: {doc.section}][Subsection: {doc.subsection}] {doc.text}"
+            for doc in eligible_documents
+        ]
+        
         vectors = self.model.encode(
-            texts,
+            texts_to_embed,
             batch_size=self.batch_size,
             show_progress_bar=True,
             convert_to_numpy=True,
             normalize_embeddings=self.normalize_embeddings,
         )
         return np.asarray(vectors, dtype=np.float32)
+
+    def _should_embed_document(self, document: ChunkDocument) -> bool:
+        return len(document.text.strip()) >= 60
 
     def embed_query(self, query: str) -> np.ndarray:
         text = query.strip()

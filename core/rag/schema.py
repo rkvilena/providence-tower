@@ -18,24 +18,35 @@ class Message(BaseModel):
     timestamp: str = Field(default_factory=now_utc_iso)
 
 
-class PlannerOutput(BaseModel):
+# Planner schema
+class PlannerState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    planned_query: str
-    queries: list[str] = Field(default_factory=list)
+    planned_queries: list[str] = Field(default_factory=list)
     reasoning: list[str] = Field(default_factory=list)
     source: Literal["llm", "fallback_python"] = "fallback_python"
 
 
-class PlannerLLMResponse(BaseModel):
+class ChunkHit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    primary_query: str = ""
-    expansion_queries: list[str] = Field(default_factory=list)
-    reasoning: list[str] = Field(default_factory=list)
-    needs_expansion: bool = False
+    chunk_id: str
+    page_id: str
+    page_title: str
+    score: float
+    text: str
+    section: str | None = None
+    subsection: str | None = None
 
 
+# Fetcher schema
+class FetcherState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chunks: list[ChunkHit] = Field(default_factory=list)
+
+
+# Global schema
 class RagState(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -43,9 +54,8 @@ class RagState(BaseModel):
     user_query: str
     phase: str = "planner"
     chat_history: list[Message] = Field(default_factory=list)
-    planned_query: str = ""
-    planned_queries: list[str] = Field(default_factory=list)
-    planner_output: PlannerOutput | None = None
+    planner_state: PlannerState = Field(default_factory=PlannerState)
+    fetcher_state: FetcherState = Field(default_factory=FetcherState)
     debug_trace: list[str] = Field(default_factory=list)
     node_latencies_ms: dict[str, float] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_utc_iso)

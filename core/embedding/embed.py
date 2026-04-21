@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=r"e:\MyProject\providencetower-v2\data\chunked_md",
         help="Directory containing *.chunked.md files",
     )
-    parser.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2", help="Embedding model name")
+    parser.add_argument("--model", default="BAAI/bge-small-en-v1.5", help="Embedding model name")
     parser.add_argument("--device", default=None, help="Embedding device, e.g. cpu, cuda, cuda:0")
     parser.add_argument("--batch-size", type=int, default=256, help="Embedding batch size")
     parser.add_argument("--redis-host", default="127.0.0.1", help="Redis host")
@@ -72,15 +72,22 @@ def main() -> None:
     if not documents:
         raise RuntimeError(f"No chunk documents found in: {input_dir}")
 
-    logger.info("Embedding %s chunks using model '%s'", len(documents), args.model)
-    vectors = embedding_service.embed_documents(documents)
+    filtered_documents = embedding_service.filter_documents_for_embedding(documents)
+    skipped_documents = len(documents) - len(filtered_documents)
+    if skipped_documents:
+        logger.info("Skipping %s chunks shorter than 50 characters", skipped_documents)
+    if not filtered_documents:
+        raise RuntimeError("No chunk documents met the minimum length requirement")
+
+    logger.info("Embedding %s chunks using model '%s'", len(filtered_documents), args.model)
+    vectors = embedding_service.embed_documents(filtered_documents)
     dim = int(vectors.shape[1])
 
     logger.info("Ensuring Redis vector index '%s' (dim=%s)", args.index_name, dim)
     store.ensure_index(dim)
 
     logger.info("Writing vectors to Redis")
-    written = store.upsert_documents(documents, vectors, batch_size=args.write_batch_size)
+    written = store.upsert_documents(filtered_documents, vectors, batch_size=args.write_batch_size)
 
     elapsed = time.perf_counter() - start
     print(
@@ -88,7 +95,7 @@ def main() -> None:
             {
                 "status": "ok",
                 "input_dir": str(input_dir),
-                "documents": len(documents),
+                "documents": len(filtered_documents),
                 "vectors_written": written,
                 "vector_dim": dim,
                 "index_name": args.index_name,

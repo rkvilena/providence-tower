@@ -18,9 +18,11 @@ from core.rag.schema import Message, RagState
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run RAG phase nodes (currently Planner only)")
-    parser.add_argument("--phase", required=True, choices=["planner"], help="RAG phase to execute")
-    parser.add_argument("--query", required=True, help="User query text")
+    parser = argparse.ArgumentParser(description="Run RAG planner/fetcher phases or full-flow")
+    parser.add_argument("--phase", choices=["planner", "fetcher"], help="RAG phase to execute")
+    parser.add_argument("--full-flow", action="store_true", help="Run planner then fetcher in one command")
+    parser.add_argument("--query", help="User query text (required for planner phase)")
+    parser.add_argument("--file", help="Path to a JSON file containing the RagState to load and update")
     parser.add_argument("--session-id", default="local-session", help="Session id for traceable artifacts")
     parser.add_argument(
         "--chat-history-json",
@@ -69,29 +71,74 @@ def main() -> None:
     logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 
     output_dir = Path(args.output_dir)
+    input_file = Path(args.file) if args.file else None
+    target_phase = "full-flow" if args.full_flow else args.phase
+
+    if not args.full_flow and not args.phase:
+        parser.error("--phase is required unless --full-flow is set")
+    
     try:
-        state = RagState(
-            session_id=args.session_id,
-            user_query=args.query,
-            phase=args.phase,
-            chat_history=_parse_history(args.chat_history_json),
-        )
-        graph = RagGraph(phase=args.phase)
-        result_state = graph.run(state)
+        if input_file:
+            if not input_file.exists():
+                raise FileNotFoundError(f"Input file not found: {input_file}")
+            raw_data = json.loads(input_file.read_text(encoding="utf-8"))
+            # If the file was created by _persist_output, the actual state is inside "state" key
+            state_data = raw_data.get("state", raw_data)
+            state = RagState(**state_data)
+            # Update phase from args if provided
+            if args.phase:
+                state.phase = args.phase
+            if args.query:
+                state.user_query = args.query
+        else:
+            if (args.phase == "planner" or args.full_flow) and not args.query:
+                raise ValueError("--query is required for planner phase when not using --file")
+            
+            state = RagState(
+                session_id=args.session_id,
+                user_query=args.query or "",
+                phase=args.phase or "planner",
+                chat_history=_parse_history(args.chat_history_json),
+            )
+
+        if args.full_flow:
+            state.phase = "planner"
+            planner_graph = RagGraph(phase="planner")
+            state = planner_graph.run(state)
+            state.phase = "fetcher"
+            fetcher_graph = RagGraph(phase="fetcher")
+            result_state = fetcher_graph.run(state)
+        else:
+            graph = RagGraph(phase=args.phase)
+            result_state = graph.run(state)
+
         output = {
             "status": "ok",
-            "phase": args.phase,
+            "phase": target_phase,
             "state": result_state.model_dump(),
         }
+        
+        if input_file:
+            # Update the original file in-place
+            input_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"Updated file: {input_file}")
+        else:
+            _persist_output(output_dir, args.session_id, target_phase or "unknown", output)
+
     except Exception as exc:
         output = {
             "status": "error",
-            "phase": args.phase,
+            "phase": target_phase,
             "error_type": exc.__class__.__name__,
             "error_message": str(exc),
         }
+        if input_file:
+             # Even on error, update the file to reflect the failure if possible
+             try:
+                 input_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+             except:
+                 pass
 
-    _persist_output(output_dir, args.session_id, args.phase, output)
     print(json.dumps(output, indent=2, ensure_ascii=False))
 
 

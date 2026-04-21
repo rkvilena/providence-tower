@@ -137,7 +137,7 @@ class RedisVectorStore:
         self,
         query_vector: np.ndarray,
         *,
-        top_k: int = 5,
+        top_k: int = 20,
         filter_query: str = "*",
     ) -> list[RedisSearchResult]:
         vec_bytes = np.asarray(query_vector, dtype=np.float32).tobytes()
