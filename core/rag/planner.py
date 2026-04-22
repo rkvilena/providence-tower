@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -56,6 +57,10 @@ class PlannerNode:
                 text = str(candidate).strip()
                 if not text:
                     continue
+                if not settings.PLANNER_PRESERVE_RICH_QUERY:
+                    text = self._collapse_to_noun_phrase(text)
+                if not text:
+                    continue
                 key = text.lower()
                 if key in seen:
                     continue
@@ -63,7 +68,10 @@ class PlannerNode:
                 planned_queries.append(text)
 
             if not planned_queries and state.user_query.strip():
-                planned_queries = [state.user_query.strip()]
+                fallback_query = state.user_query.strip()
+                if not settings.PLANNER_PRESERVE_RICH_QUERY:
+                    fallback_query = self._collapse_to_noun_phrase(fallback_query)
+                planned_queries = [fallback_query] if fallback_query else []
             if not planned_queries:
                 raise ValueError("Planner LLM returned empty planned_queries.")
 
@@ -79,10 +87,28 @@ class PlannerNode:
             return self._fallback_planner(state)
 
     def _fallback_planner(self, state: RagState) -> PlannerState:
+        fallback_query = state.user_query.strip()
+        if not settings.PLANNER_PRESERVE_RICH_QUERY:
+            fallback_query = self._collapse_to_noun_phrase(fallback_query)
         return PlannerState(
-            planned_queries=[state.user_query.strip()] if state.user_query.strip() else [],
+            planned_queries=[fallback_query] if fallback_query else [],
             reasoning=[
                 "Fell back to original user query due to unavailable planner LLM output.",
             ],
             source="fallback_python",
         )
+
+    def _collapse_to_noun_phrase(self, query: str) -> str:
+        text = query.strip()
+        patterns = [
+            r"^\s*who\s+is\s+",
+            r"^\s*what\s+is\s+",
+            r"^\s*what\s+are\s+",
+            r"^\s*tell\s+me\s+about\s+",
+            r"^\s*can\s+you\s+explain\s+",
+            r"^\s*i\s+want\s+to\s+know\s+about\s+",
+        ]
+        for pattern in patterns:
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+", " ", text).strip(" ?!.")
+        return text or query.strip()

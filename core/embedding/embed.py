@@ -79,15 +79,36 @@ def main() -> None:
     if not filtered_documents:
         raise RuntimeError("No chunk documents met the minimum length requirement")
 
-    logger.info("Embedding %s chunks using model '%s'", len(filtered_documents), args.model)
-    vectors = embedding_service.embed_documents(filtered_documents)
-    dim = int(vectors.shape[1])
+    logger.info("Embedding and writing %s chunks using model '%s'", len(filtered_documents), args.model)
+    written = 0
+    dim = 0
+    index_ready = False
+    batch_index = 0
+    for batch_docs, batch_vectors in embedding_service.iter_embeddings_by_batch(
+        documents,
+        batch_size=args.batch_size,
+    ):
+        batch_index += 1
+        if batch_vectors.size == 0:
+            continue
+        if not index_ready:
+            dim = int(batch_vectors.shape[1])
+            logger.info("Ensuring Redis vector index '%s' (dim=%s)", args.index_name, dim)
+            store.ensure_index(dim)
+            index_ready = True
 
-    logger.info("Ensuring Redis vector index '%s' (dim=%s)", args.index_name, dim)
-    store.ensure_index(dim)
+        batch_written = store.upsert_documents(batch_docs, batch_vectors, batch_size=args.write_batch_size)
+        written += batch_written
+        logger.info(
+            "Wrote batch %s to Redis: %s documents (cumulative=%s/%s)",
+            batch_index,
+            batch_written,
+            written,
+            len(filtered_documents),
+        )
 
-    logger.info("Writing vectors to Redis")
-    written = store.upsert_documents(filtered_documents, vectors, batch_size=args.write_batch_size)
+    if not index_ready:
+        raise RuntimeError("No vectors generated from eligible documents")
 
     elapsed = time.perf_counter() - start
     print(

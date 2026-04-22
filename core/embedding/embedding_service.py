@@ -4,6 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 import numpy as np
 import torch
@@ -124,6 +125,35 @@ class EmbeddingService:
             normalize_embeddings=self.normalize_embeddings,
         )
         return np.asarray(vectors, dtype=np.float32)
+
+    def iter_embeddings_by_batch(
+        self,
+        documents: list[ChunkDocument],
+        *,
+        batch_size: int | None = None,
+    ) -> Iterator[tuple[list[ChunkDocument], np.ndarray]]:
+        eligible_documents = self.filter_documents_for_embedding(documents)
+        if not eligible_documents:
+            return
+
+        effective_batch_size = batch_size or self.batch_size
+        if effective_batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
+
+        for start in range(0, len(eligible_documents), effective_batch_size):
+            batch_docs = eligible_documents[start : start + effective_batch_size]
+            texts_to_embed = [
+                f"[Page: {doc.page_title}][Section: {doc.section}][Subsection: {doc.subsection}] {doc.text}"
+                for doc in batch_docs
+            ]
+            batch_vectors = self.model.encode(
+                texts_to_embed,
+                batch_size=self.batch_size,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=self.normalize_embeddings,
+            )
+            yield batch_docs, np.asarray(batch_vectors, dtype=np.float32)
 
     def _should_embed_document(self, document: ChunkDocument) -> bool:
         return len(document.text.strip()) >= 60
