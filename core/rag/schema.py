@@ -46,6 +46,16 @@ class FetcherState(BaseModel):
     chunks: list[ChunkHit] = Field(default_factory=list)
 
 
+# Thinker schema
+class ThinkerState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sufficient: bool = False
+    used_chunk_ids: list[str] = Field(default_factory=list)
+    response: str = ""
+    reasoning: list[str] = Field(default_factory=list)
+
+
 # Global schema
 class RagState(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
@@ -56,6 +66,7 @@ class RagState(BaseModel):
     chat_history: list[Message] = Field(default_factory=list)
     planner_state: PlannerState = Field(default_factory=PlannerState)
     fetcher_state: FetcherState = Field(default_factory=FetcherState)
+    thinker_state: ThinkerState = Field(default_factory=ThinkerState)
     debug_trace: list[str] = Field(default_factory=list)
     node_latencies_ms: dict[str, float] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_utc_iso)

@@ -18,9 +18,9 @@ from core.rag.schema import Message, RagState
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run RAG planner/fetcher phases or full-flow")
-    parser.add_argument("--phase", choices=["planner", "fetcher"], help="RAG phase to execute")
-    parser.add_argument("--full-flow", action="store_true", help="Run planner then fetcher in one command")
+    parser = argparse.ArgumentParser(description="Run RAG planner/fetcher/thinker phases or full-flow")
+    parser.add_argument("--phase", choices=["planner", "fetcher", "thinker"], help="RAG phase to execute")
+    parser.add_argument("--full-flow", action="store_true", help="Run planner, fetcher, then thinker in one command")
     parser.add_argument("--query", help="User query text (required for planner phase)")
     parser.add_argument("--file", help="Path to a JSON file containing the RagState to load and update")
     parser.add_argument("--session-id", default="local-session", help="Session id for traceable artifacts")
@@ -76,7 +76,7 @@ def main() -> None:
 
     if not args.full_flow and not args.phase:
         parser.error("--phase is required unless --full-flow is set")
-    
+
     try:
         if input_file:
             if not input_file.exists():
@@ -107,7 +107,10 @@ def main() -> None:
             state = planner_graph.run(state)
             state.phase = "fetcher"
             fetcher_graph = RagGraph(phase="fetcher")
-            result_state = fetcher_graph.run(state)
+            state = fetcher_graph.run(state)
+            state.phase = "thinker"
+            thinker_graph = RagGraph(phase="thinker")
+            result_state = thinker_graph.run(state)
         else:
             graph = RagGraph(phase=args.phase)
             result_state = graph.run(state)
@@ -139,7 +142,8 @@ def main() -> None:
              except:
                  pass
 
-    print(json.dumps(output, indent=2, ensure_ascii=False))
+    print("Question:", state.user_query)
+    print("Response:", state.thinker_state.response)
 
 
 if __name__ == "__main__":
