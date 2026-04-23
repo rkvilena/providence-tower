@@ -14,7 +14,8 @@ Rules:
 - Keep user intent, entities, constraints, and timeframe.
 - Keep the query concise and high-signal.
 - Preserve critical nouns and comparison targets.
-- Do not invent entities outside user input and provided chat history.
+- Do not invent entities outside user input and provided conversation history.
+- Use conversation history to resolve references (it/that/they) into explicit entities in the condensed query.
 - If the user query is broad or ambiguous (for example missing a specific noun such as game title), include additional query variants when they help retrieval.
 - If the user query is already specific, one close variant with minimal rewrite is enough.
 """

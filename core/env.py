@@ -43,6 +43,12 @@ class Settings(BaseModel):
 
     OPENAI_API_KEY: str | None
     OPENAI_BASE_URL: str | None
+    REDIS_HOST: str
+    REDIS_PORT: int
+    REDIS_DB: int
+    REDIS_PASSWORD: str | None
+    RAG_HISTORY_WINDOW: int
+    RAG_SESSION_TTL_SECONDS: int
     PLANNER_AGENT: bool
     PLANNER_MODEL: str
     PLANNER_PRESERVE_RICH_QUERY: bool
@@ -55,6 +61,12 @@ class Settings(BaseModel):
 settings = Settings(
     OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
     OPENAI_BASE_URL=os.getenv("OPENAI_BASE_URL"),
+    REDIS_HOST=os.getenv("REDIS_HOST", "127.0.0.1"),
+    REDIS_PORT=_to_int(os.getenv("REDIS_PORT"), default=6379),
+    REDIS_DB=_to_int(os.getenv("REDIS_DB"), default=0),
+    REDIS_PASSWORD=os.getenv("REDIS_PASSWORD"),
+    RAG_HISTORY_WINDOW=_to_int(os.getenv("RAG_HISTORY_WINDOW"), default=10),
+    RAG_SESSION_TTL_SECONDS=_to_int(os.getenv("RAG_SESSION_TTL_SECONDS"), default=900),
     PLANNER_AGENT=_to_bool(os.getenv("PLANNER_AGENT"), default=True),
     PLANNER_MODEL=os.getenv("PLANNER_MODEL", MODEL_DICT["PLANNER"]),
     PLANNER_PRESERVE_RICH_QUERY=_to_bool(os.getenv("PLANNER_PRESERVE_RICH_QUERY"), default=False),

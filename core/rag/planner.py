@@ -39,10 +39,10 @@ class PlannerNode:
             state.add_trace("Planner LLM skipped: not initialized. Using fallback.")
             return self._fallback_planner(state)
 
-        history_hint = [{"role": m.role, "content": m.content} for m in state.chat_history[-4:]]
+        history_hint = [{"q": h.q, "a": h.a} for h in state.history[-settings.RAG_HISTORY_WINDOW :]]
         user_payload = {
             "user_query": state.user_query,
-            "chat_history": history_hint,
+            "history": history_hint,
         }
         try:
             parsed = self.structured_llm.invoke(
@@ -51,6 +51,10 @@ class PlannerNode:
                     HumanMessage(content=json.dumps(user_payload, ensure_ascii=False)),
                 ]
             )
+            condensed_query = str(getattr(parsed, "condensed_query", "")).strip()
+            if not condensed_query:
+                condensed_query = state.user_query.strip()
+
             planned_queries: list[str] = []
             seen: set[str] = set()
             for candidate in parsed.planned_queries:
@@ -67,16 +71,18 @@ class PlannerNode:
                 seen.add(key)
                 planned_queries.append(text)
 
-            if not planned_queries and state.user_query.strip():
-                fallback_query = state.user_query.strip()
+            if not planned_queries and condensed_query:
+                fallback_query = condensed_query
                 if not settings.PLANNER_PRESERVE_RICH_QUERY:
                     fallback_query = self._collapse_to_noun_phrase(fallback_query)
-                planned_queries = [fallback_query] if fallback_query else []
+                if fallback_query:
+                    planned_queries = [fallback_query]
             if not planned_queries:
                 raise ValueError("Planner LLM returned empty planned_queries.")
 
             reasoning = parsed.reasoning or ["Generated semantic search query variants from user intent."]
             return PlannerState(
+                condensed_query=condensed_query or planned_queries[0],
                 planned_queries=planned_queries,
                 reasoning=[str(item) for item in reasoning][:5],
                 source="llm",
@@ -91,6 +97,7 @@ class PlannerNode:
         if not settings.PLANNER_PRESERVE_RICH_QUERY:
             fallback_query = self._collapse_to_noun_phrase(fallback_query)
         return PlannerState(
+            condensed_query=fallback_query,
             planned_queries=[fallback_query] if fallback_query else [],
             reasoning=[
                 "Fell back to original user query due to unavailable planner LLM output.",

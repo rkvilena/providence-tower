@@ -14,6 +14,8 @@ if __package__ is None or __package__ == "":
         sys.path.insert(0, str(project_root))
 
 from core.rag.rag_graph import RagGraph
+from core.env import settings
+from core.rag.history import RedisHistoryStore, generate_session_id
 from core.rag.schema import Message, RagState
 
 
@@ -23,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--full-flow", action="store_true", help="Run planner, fetcher, then thinker in one command")
     parser.add_argument("--query", help="User query text (required for planner phase)")
     parser.add_argument("--file", help="Path to a JSON file containing the RagState to load and update")
-    parser.add_argument("--session-id", default="local-session", help="Session id for traceable artifacts")
+    parser.add_argument("--session-id", default=None, help="Session id for traceable artifacts (optional)")
     parser.add_argument(
         "--chat-history-json",
         default="[]",
@@ -69,6 +71,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+    logger = logging.getLogger(__name__)
 
     output_dir = Path(args.output_dir)
     input_file = Path(args.file) if args.file else None
@@ -78,6 +81,18 @@ def main() -> None:
         parser.error("--phase is required unless --full-flow is set")
 
     try:
+        history_store: RedisHistoryStore | None = RedisHistoryStore(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=settings.REDIS_DB,
+            password=settings.REDIS_PASSWORD or None,
+        )
+        try:
+            history_store.ping()
+        except Exception as exc:
+            logger.warning("Redis session history disabled (ping failed): %s", exc)
+            history_store = None
+
         if input_file:
             if not input_file.exists():
                 raise FileNotFoundError(f"Input file not found: {input_file}")
@@ -85,6 +100,10 @@ def main() -> None:
             # If the file was created by _persist_output, the actual state is inside "state" key
             state_data = raw_data.get("state", raw_data)
             state = RagState(**state_data)
+            if args.session_id and str(args.session_id).strip():
+                state.session_id = str(args.session_id).strip()
+            if not state.session_id.strip():
+                state.session_id = generate_session_id()
             # Update phase from args if provided
             if args.phase:
                 state.phase = args.phase
@@ -93,13 +112,22 @@ def main() -> None:
         else:
             if (args.phase == "planner" or args.full_flow) and not args.query:
                 raise ValueError("--query is required for planner phase when not using --file")
-            
+
+            session_id = str(args.session_id).strip() if args.session_id and str(args.session_id).strip() else generate_session_id()
             state = RagState(
-                session_id=args.session_id,
+                session_id=session_id,
                 user_query=args.query or "",
                 phase=args.phase or "planner",
                 chat_history=_parse_history(args.chat_history_json),
             )
+
+        if history_store and (args.full_flow or state.phase == "planner"):
+            try:
+                state.history = history_store.load_history(state.session_id)
+                state.add_trace(f"Loaded session history turns={len(state.history)}.")
+            except Exception as exc:
+                logger.warning("Failed to load session history: %s", exc)
+                state.add_trace(f"Failed to load session history: {exc}")
 
         if args.full_flow:
             state.phase = "planner"
@@ -115,6 +143,24 @@ def main() -> None:
             graph = RagGraph(phase=args.phase)
             result_state = graph.run(state)
 
+        if history_store and (args.full_flow or args.phase == "thinker"):
+            response_text = (result_state.thinker_state.response or "").strip()
+            question_text = (result_state.user_query or "").strip()
+            if question_text and response_text:
+                try:
+                    history_store.append_turn(
+                        result_state.session_id,
+                        question=question_text,
+                        answer=response_text,
+                        history_window=settings.RAG_HISTORY_WINDOW,
+                        ttl_seconds=settings.RAG_SESSION_TTL_SECONDS,
+                    )
+                    result_state.history = history_store.load_history(result_state.session_id)
+                    result_state.add_trace(f"Persisted session history turns={len(result_state.history)}.")
+                except Exception as exc:
+                    logger.warning("Failed to persist session history: %s", exc)
+                    result_state.add_trace(f"Failed to persist session history: {exc}")
+
         output = {
             "status": "ok",
             "phase": target_phase,
@@ -126,7 +172,7 @@ def main() -> None:
             input_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
             print(f"Updated file: {input_file}")
         else:
-            _persist_output(output_dir, args.session_id, target_phase or "unknown", output)
+            _persist_output(output_dir, result_state.session_id, target_phase or "unknown", output)
 
     except Exception as exc:
         output = {
@@ -142,8 +188,10 @@ def main() -> None:
              except:
                  pass
 
-    print("Question:", state.user_query)
-    print("Response:", state.thinker_state.response)
+    final_state = locals().get("result_state") or locals().get("state")
+    if final_state is not None:
+        print("Question:", final_state.user_query)
+        print("Response:", final_state.thinker_state.response)
 
 
 if __name__ == "__main__":

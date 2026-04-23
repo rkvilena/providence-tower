@@ -18,10 +18,18 @@ class Message(BaseModel):
     timestamp: str = Field(default_factory=now_utc_iso)
 
 
+class HistoryTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    q: str
+    a: str
+
+
 # Planner schema
 class PlannerState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    condensed_query: str = ""
     planned_queries: list[str] = Field(default_factory=list)
     reasoning: list[str] = Field(default_factory=list)
     source: Literal["llm", "fallback_python"] = "fallback_python"
@@ -64,6 +72,7 @@ class RagState(BaseModel):
     user_query: str
     phase: str = "planner"
     chat_history: list[Message] = Field(default_factory=list)
+    history: list[HistoryTurn] = Field(default_factory=list)
     planner_state: PlannerState = Field(default_factory=PlannerState)
     fetcher_state: FetcherState = Field(default_factory=FetcherState)
     thinker_state: ThinkerState = Field(default_factory=ThinkerState)
