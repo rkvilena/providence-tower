@@ -44,15 +44,6 @@ def _build_history_store() -> RedisHistoryStore | None:
         return None
 
 
-def _run_full_flow(state: RagState) -> RagState:
-    state.phase = "planner"
-    state = RagGraph(phase="planner").run(state)
-    state.phase = "fetcher"
-    state = RagGraph(phase="fetcher").run(state)
-    state.phase = "thinker"
-    return RagGraph(phase="thinker").run(state)
-
-
 def main() -> None:
     _print_banner()
 
@@ -65,6 +56,11 @@ def main() -> None:
         print("Planner condensation: OFF (LLM disabled or missing OPENAI_API_KEY)")
     print()
 
+    rag = RagGraph()
+    try:
+        rag.warmup()
+    except Exception:
+        pass
     session_id = generate_session_id()
     while True:
         try:
@@ -89,7 +85,7 @@ def main() -> None:
 
         history = store.load_history(session_id) if store is not None else []
         state = RagState(session_id=session_id, user_query=raw, history=history)
-        result = _run_full_flow(state)
+        result = rag.run(state)
 
         response_text = (result.thinker_state.response or "").strip()
         if store is not None and response_text:

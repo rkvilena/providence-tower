@@ -7,7 +7,11 @@ from typing import Any
 import numpy as np
 import redis
 from redis.commands.search.field import NumericField, TagField, TextField, VectorField
-from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+
+try:
+    from redis.commands.search.index_definition import IndexDefinition, IndexType
+except ModuleNotFoundError:
+    from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 
 from core.embedding.embedding_service import ChunkDocument

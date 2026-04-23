@@ -16,7 +16,10 @@ if __package__ is None or __package__ == "":
 from core.rag.rag_graph import RagGraph
 from core.env import settings
 from core.rag.history import RedisHistoryStore, generate_session_id
+from core.rag.fetcher import FetcherNode
+from core.rag.planner import PlannerNode
 from core.rag.schema import Message, RagState
+from core.rag.thinker import ThinkerNode
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -163,18 +166,20 @@ def main() -> None:
                 state.add_trace(f"Failed to load session history: {exc}")
 
         if args.full_flow:
-            state.phase = "planner"
-            planner_graph = RagGraph(phase="planner")
-            state = planner_graph.run(state)
-            state.phase = "fetcher"
-            fetcher_graph = RagGraph(phase="fetcher")
-            state = fetcher_graph.run(state)
             state.phase = "thinker"
-            thinker_graph = RagGraph(phase="thinker")
-            result_state = thinker_graph.run(state)
+            result_state = RagGraph().run(state)
         else:
-            graph = RagGraph(phase=args.phase)
-            result_state = graph.run(state)
+            if args.phase == "planner":
+                state.phase = "planner"
+                result_state = PlannerNode().run(state)
+            elif args.phase == "fetcher":
+                state.phase = "fetcher"
+                result_state = FetcherNode().run(state)
+            elif args.phase == "thinker":
+                state.phase = "thinker"
+                result_state = ThinkerNode().run(state)
+            else:
+                raise ValueError("Invalid phase")
 
         if history_store and (args.full_flow or args.phase == "thinker"):
             response_text = (result_state.thinker_state.response or "").strip()

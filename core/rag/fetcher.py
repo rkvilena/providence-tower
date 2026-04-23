@@ -16,14 +16,16 @@ class FetcherNode:
     def __init__(
         self,
         *,
-        model_name: str = "BAAI/bge-small-en-v1.5",
+        embedding_model: str | None = None,
         redis_host: str = "127.0.0.1",
         redis_port: int = 6379,
         redis_db: int = 0,
         redis_password: str | None = None,
         index_name: str = "rag_chunks_idx",
     ) -> None:
-        self.embedder = EmbeddingService(model_name=model_name)
+        self.embedder = EmbeddingService(
+            model_name=embedding_model or settings.EMBEDDING_MODEL
+        )
         self.store = RedisVectorStore(
             host=redis_host,
             port=redis_port,

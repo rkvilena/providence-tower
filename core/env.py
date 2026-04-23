@@ -41,17 +41,23 @@ def _to_float(value: str | None, *, default: float) -> float:
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    EMBEDDING_MODEL: str
+
     OPENAI_API_KEY: str | None
     OPENAI_BASE_URL: str | None
+
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_DB: int
     REDIS_PASSWORD: str | None
+
     RAG_HISTORY_WINDOW: int
     RAG_SESSION_TTL_SECONDS: int
+
     PLANNER_AGENT: bool
     PLANNER_MODEL: str
     PLANNER_PRESERVE_RICH_QUERY: bool
+
     RERANK_ENABLED: bool
     RERANK_MODEL: str
     RERANK_TOP_K: int
@@ -59,6 +65,7 @@ class Settings(BaseModel):
 
 
 settings = Settings(
+    EMBEDDING_MODEL=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
     OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
     OPENAI_BASE_URL=os.getenv("OPENAI_BASE_URL"),
     REDIS_HOST=os.getenv("REDIS_HOST", "127.0.0.1"),
