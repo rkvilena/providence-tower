@@ -35,7 +35,9 @@ class ThinkerNode:
         else:
             thinker_state = self._fallback_thinker(state)
 
-        thinker_state = self._postprocess_thinker_state(thinker_state, state.fetcher_state.chunks)
+        thinker_state = self._postprocess_thinker_state(
+            thinker_state, state.fetcher_state.chunks
+        )
 
         state.thinker_state = thinker_state
         state.add_trace(
@@ -100,7 +102,9 @@ class ThinkerNode:
         self, thinker_state: ThinkerState, chunks: Iterable[ChunkHit]
     ) -> ThinkerState:
         available_ids = {c.chunk_id for c in chunks}
-        thinker_state.used_chunk_ids = [cid for cid in thinker_state.used_chunk_ids if cid in available_ids]
+        thinker_state.used_chunk_ids = [
+            cid for cid in thinker_state.used_chunk_ids if cid in available_ids
+        ]
 
         if thinker_state.sufficient and not thinker_state.used_chunk_ids:
             thinker_state.sufficient = False
@@ -125,7 +129,9 @@ class ThinkerNode:
             return thinker_state
 
         if not thinker_state.response.strip():
-            thinker_state.response = "I have enough context to answer, but the response text was empty."
+            thinker_state.response = (
+                "I have enough context to answer, but the response text was empty."
+            )
 
         thinker_state.response = self._append_references_if_needed(
             response=thinker_state.response,
@@ -164,6 +170,7 @@ class ThinkerNode:
         if not page_ids:
             return response
 
-        refs = "\n".join(f"https://isu.fandom.com/wiki/?curid={pid}" for pid in page_ids)
+        refs = "\n".join(
+            f"https://isu.fandom.com/wiki/?curid={pid}" for pid in page_ids
+        )
         return f"{response.rstrip()}\n\nReferences:\n{refs}"
-

@@ -20,12 +20,28 @@ from core.rag.schema import Message, RagState
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run RAG planner/fetcher/thinker phases or full-flow")
-    parser.add_argument("--phase", choices=["planner", "fetcher", "thinker"], help="RAG phase to execute")
-    parser.add_argument("--full-flow", action="store_true", help="Run planner, fetcher, then thinker in one command")
+    parser = argparse.ArgumentParser(
+        description="Run RAG planner/fetcher/thinker phases or full-flow"
+    )
+    parser.add_argument(
+        "--phase",
+        choices=["planner", "fetcher", "thinker"],
+        help="RAG phase to execute",
+    )
+    parser.add_argument(
+        "--full-flow",
+        action="store_true",
+        help="Run planner, fetcher, then thinker in one command",
+    )
     parser.add_argument("--query", help="User query text (required for planner phase)")
-    parser.add_argument("--file", help="Path to a JSON file containing the RagState to load and update")
-    parser.add_argument("--session-id", default=None, help="Session id for traceable artifacts (optional)")
+    parser.add_argument(
+        "--file", help="Path to a JSON file containing the RagState to load and update"
+    )
+    parser.add_argument(
+        "--session-id",
+        default=None,
+        help="Session id for traceable artifacts (optional)",
+    )
     parser.add_argument(
         "--chat-history-json",
         default="[]",
@@ -36,7 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=r"e:\MyProject\providencetower-v2\data\rag_result",
         help="Directory where JSON results will be written",
     )
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
     return parser
 
 
@@ -57,20 +75,29 @@ def _parse_history(raw_json: str) -> list[Message]:
     return history
 
 
-def _persist_output(output_dir: Path, session_id: str, phase: str, payload: dict) -> Path:
+def _persist_output(
+    output_dir: Path, session_id: str, phase: str, payload: dict
+) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    safe_session = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in session_id)
+    safe_session = "".join(
+        ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in session_id
+    )
     file_path = output_dir / f"{timestamp}__{safe_session}__{phase}.json"
     payload["result_file"] = str(file_path)
-    file_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    file_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return file_path
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )
     logger = logging.getLogger(__name__)
 
     output_dir = Path(args.output_dir)
@@ -111,9 +138,15 @@ def main() -> None:
                 state.user_query = args.query
         else:
             if (args.phase == "planner" or args.full_flow) and not args.query:
-                raise ValueError("--query is required for planner phase when not using --file")
+                raise ValueError(
+                    "--query is required for planner phase when not using --file"
+                )
 
-            session_id = str(args.session_id).strip() if args.session_id and str(args.session_id).strip() else generate_session_id()
+            session_id = (
+                str(args.session_id).strip()
+                if args.session_id and str(args.session_id).strip()
+                else generate_session_id()
+            )
             state = RagState(
                 session_id=session_id,
                 user_query=args.query or "",
@@ -155,8 +188,12 @@ def main() -> None:
                         history_window=settings.RAG_HISTORY_WINDOW,
                         ttl_seconds=settings.RAG_SESSION_TTL_SECONDS,
                     )
-                    result_state.history = history_store.load_history(result_state.session_id)
-                    result_state.add_trace(f"Persisted session history turns={len(result_state.history)}.")
+                    result_state.history = history_store.load_history(
+                        result_state.session_id
+                    )
+                    result_state.add_trace(
+                        f"Persisted session history turns={len(result_state.history)}."
+                    )
                 except Exception as exc:
                     logger.warning("Failed to persist session history: %s", exc)
                     result_state.add_trace(f"Failed to persist session history: {exc}")
@@ -166,13 +203,17 @@ def main() -> None:
             "phase": target_phase,
             "state": result_state.model_dump(),
         }
-        
+
         if input_file:
             # Update the original file in-place
-            input_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+            input_file.write_text(
+                json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
             print(f"Updated file: {input_file}")
         else:
-            _persist_output(output_dir, result_state.session_id, target_phase or "unknown", output)
+            _persist_output(
+                output_dir, result_state.session_id, target_phase or "unknown", output
+            )
 
     except Exception as exc:
         output = {
@@ -182,11 +223,13 @@ def main() -> None:
             "error_message": str(exc),
         }
         if input_file:
-             # Even on error, update the file to reflect the failure if possible
-             try:
-                 input_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
-             except:
-                 pass
+            # Even on error, update the file to reflect the failure if possible
+            try:
+                input_file.write_text(
+                    json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+            except:
+                pass
 
     final_state = locals().get("result_state") or locals().get("state")
     if final_state is not None:

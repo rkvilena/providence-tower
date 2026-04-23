@@ -69,7 +69,9 @@ settings = Settings(
     RAG_SESSION_TTL_SECONDS=_to_int(os.getenv("RAG_SESSION_TTL_SECONDS"), default=900),
     PLANNER_AGENT=_to_bool(os.getenv("PLANNER_AGENT"), default=True),
     PLANNER_MODEL=os.getenv("PLANNER_MODEL", MODEL_DICT["PLANNER"]),
-    PLANNER_PRESERVE_RICH_QUERY=_to_bool(os.getenv("PLANNER_PRESERVE_RICH_QUERY"), default=False),
+    PLANNER_PRESERVE_RICH_QUERY=_to_bool(
+        os.getenv("PLANNER_PRESERVE_RICH_QUERY"), default=False
+    ),
     RERANK_ENABLED=_to_bool(os.getenv("RERANK_ENABLED"), default=True),
     RERANK_MODEL=os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
     RERANK_TOP_K=_to_int(os.getenv("RERANK_TOP_K"), default=20),

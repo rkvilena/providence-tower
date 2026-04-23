@@ -22,7 +22,9 @@ from core.ingestion.mediawiki_ingestor import (
     _has_redirect_phrase,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s"
+)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -33,13 +35,17 @@ def _infer_base_wiki_url(api_url: str) -> str | None:
     # Handle common MediaWiki API forms:
     # - https://host/wiki/api.php
     # - https://host/w/api.php
-    base = re.sub(r"/(?:wiki|w)?/api\.php(?:\?.*)?$", "", normalized, flags=re.IGNORECASE)
+    base = re.sub(
+        r"/(?:wiki|w)?/api\.php(?:\?.*)?$", "", normalized, flags=re.IGNORECASE
+    )
     if base == normalized:
         return None
     return f"{base.rstrip('/')}/wiki"
 
 
-def fetch_single_page(api_url: str, title: str, output_dir: Path, base_wiki_url: str | None = None):
+def fetch_single_page(
+    api_url: str, title: str, output_dir: Path, base_wiki_url: str | None = None
+):
     client = MediaWikiAPIClient(api_url=api_url)
 
     # Resolve title to ID
@@ -109,20 +115,47 @@ def main() -> None:
         default=r"e:\MyProject\providencetower-v2\data\raw_markdown",
         help="Directory where markdown files and manifest will be written",
     )
-    parser.add_argument("--title", help="Specific page title to ingest (single fetch mode)")
-    parser.add_argument("--namespace", type=int, default=0, help="MediaWiki namespace id (full ingest mode)")
-    parser.add_argument("--limit", type=int, default=None, help="Optional limit for debugging (full ingest mode)")
-    parser.add_argument("--request-interval", type=float, default=0.2, help="Delay between requests (seconds)")
-    parser.add_argument("--timeout", type=int, default=30, help="Request timeout (seconds)")
-    parser.add_argument("--max-retries", type=int, default=4, help="Retry count for transient failures")
-    parser.add_argument("--batch-size", type=int, default=50, help="Batch size for title/page queries")
-    parser.add_argument("--user-agent", default="ProvidenceTowerIngestor/1.0 (+local ingestion script)")
+    parser.add_argument(
+        "--title", help="Specific page title to ingest (single fetch mode)"
+    )
+    parser.add_argument(
+        "--namespace",
+        type=int,
+        default=0,
+        help="MediaWiki namespace id (full ingest mode)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Optional limit for debugging (full ingest mode)",
+    )
+    parser.add_argument(
+        "--request-interval",
+        type=float,
+        default=0.2,
+        help="Delay between requests (seconds)",
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=30, help="Request timeout (seconds)"
+    )
+    parser.add_argument(
+        "--max-retries", type=int, default=4, help="Retry count for transient failures"
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=50, help="Batch size for title/page queries"
+    )
+    parser.add_argument(
+        "--user-agent", default="ProvidenceTowerIngestor/1.0 (+local ingestion script)"
+    )
     parser.add_argument(
         "--base-wiki-url",
         default=None,
         help="Optional base page URL for manifest source links, e.g. https://example.com/wiki",
     )
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
 
     args = parser.parse_args()
 
@@ -132,7 +165,9 @@ def main() -> None:
 
     if args.title:
         # Single page mode
-        fetch_single_page(args.api_url, args.title, Path(args.output_dir), effective_base_wiki_url)
+        fetch_single_page(
+            args.api_url, args.title, Path(args.output_dir), effective_base_wiki_url
+        )
     else:
         # Full ingest mode
         client = MediaWikiAPIClient(

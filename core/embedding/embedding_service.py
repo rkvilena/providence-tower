@@ -41,16 +41,18 @@ class EmbeddingService:
         self.model_name = model_name
         self.batch_size = batch_size
         self.normalize_embeddings = normalize_embeddings
-        
+
         # Limit PyTorch to use only 4 CPU threads to avoid maxing out system resources
         torch.set_num_threads(4)
-        
+
         self.model = SentenceTransformer(model_name, device=device)
         self._breadcrumb_pattern = re.compile(
             r"^\[Page:\s*(.*?)\]\[Section:\s*(.*?)\]\[Subsection:\s*(.*?)\]\s*(.*)$",
             re.DOTALL,
         )
-        self._meta_from_filename_pattern = re.compile(r"^(?P<id>\d+)__(?P<title>.+)\.chunked\.md$", re.IGNORECASE)
+        self._meta_from_filename_pattern = re.compile(
+            r"^(?P<id>\d+)__(?P<title>.+)\.chunked\.md$", re.IGNORECASE
+        )
 
     def load_documents_from_directory(self, input_dir: Path) -> list[ChunkDocument]:
         if not input_dir.exists():
@@ -61,12 +63,18 @@ class EmbeddingService:
             documents.extend(self.load_documents_from_file(file_path))
         return documents
 
-    def filter_documents_for_embedding(self, documents: list[ChunkDocument]) -> list[ChunkDocument]:
-        return [document for document in documents if self._should_embed_document(document)]
+    def filter_documents_for_embedding(
+        self, documents: list[ChunkDocument]
+    ) -> list[ChunkDocument]:
+        return [
+            document for document in documents if self._should_embed_document(document)
+        ]
 
     def load_documents_from_file(self, file_path: Path) -> list[ChunkDocument]:
         text = file_path.read_text(encoding="utf-8")
-        fallback_page_id, fallback_title = self._extract_page_metadata_from_file(file_path.name)
+        fallback_page_id, fallback_title = self._extract_page_metadata_from_file(
+            file_path.name
+        )
         docs: list[ChunkDocument] = []
 
         for chunk_block in re.split(r"(?m)^##\s+Chunk\s+", text)[1:]:
@@ -110,13 +118,13 @@ class EmbeddingService:
         eligible_documents = self.filter_documents_for_embedding(documents)
         if not eligible_documents:
             return np.empty((0, 0), dtype=np.float32)
-        
+
         # Prepend context (Page/Section/Subsection) to the text for better semantic signal
         texts_to_embed = [
             f"[Page: {doc.page_title}][Section: {doc.section}][Subsection: {doc.subsection}] {doc.text}"
             for doc in eligible_documents
         ]
-        
+
         vectors = self.model.encode(
             texts_to_embed,
             batch_size=self.batch_size,

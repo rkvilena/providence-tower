@@ -29,7 +29,9 @@ class PlannerNode:
             self.structured_llm = self.llm.with_structured_output(PlannerState)
 
     def run(self, state: RagState) -> RagState:
-        output = self._run_llm_planner(state) if self.llm else self._fallback_planner(state)
+        output = (
+            self._run_llm_planner(state) if self.llm else self._fallback_planner(state)
+        )
         state.planner_state = output
         state.add_trace(f"Planner node completed with source={output.source}.")
         return state
@@ -39,7 +41,9 @@ class PlannerNode:
             state.add_trace("Planner LLM skipped: not initialized. Using fallback.")
             return self._fallback_planner(state)
 
-        history_hint = [{"q": h.q, "a": h.a} for h in state.history[-settings.RAG_HISTORY_WINDOW :]]
+        history_hint = [
+            {"q": h.q, "a": h.a} for h in state.history[-settings.RAG_HISTORY_WINDOW :]
+        ]
         user_payload = {
             "user_query": state.user_query,
             "history": history_hint,
@@ -92,7 +96,9 @@ class PlannerNode:
             if not planned_queries:
                 raise ValueError("Planner LLM returned empty planned_queries.")
 
-            reasoning = parsed.reasoning or ["Generated semantic search query variants from user intent."]
+            reasoning = parsed.reasoning or [
+                "Generated semantic search query variants from user intent."
+            ]
             return PlannerState(
                 condensed_query=condensed_query or planned_queries[0],
                 planned_queries=planned_queries,

@@ -53,9 +53,13 @@ def seed(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    resolved_index_name = str(index_name or manifest.get("index_name") or "rag_chunks_idx")
+    resolved_index_name = str(
+        index_name or manifest.get("index_name") or "rag_chunks_idx"
+    )
     resolved_key_prefix = str(key_prefix or manifest.get("key_prefix") or "rag:chunk:")
-    resolved_distance_metric = str(distance_metric or manifest.get("distance_metric") or "COSINE")
+    resolved_distance_metric = str(
+        distance_metric or manifest.get("distance_metric") or "COSINE"
+    )
     vector_dim = int(manifest.get("vector_dim") or 0)
     if vector_dim < 1:
         raise ValueError("Invalid vector_dim in manifest")
@@ -131,20 +135,45 @@ def seed(
         total += rows_in_part
         print(f"Seeded {part_file_name}: {rows_in_part} rows (cumulative={total})")
 
-    print(f"Done. Seeded {total} rows into Redis {host}:{port}/{db} index={resolved_index_name}")
+    print(
+        f"Done. Seeded {total} rows into Redis {host}:{port}/{db} index={resolved_index_name}"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Seed Redis from Colab JSON embedding export")
-    parser.add_argument("--export-dir", default="e:\\MyProject\\providencetower-v2\\embed_chunk", help="Directory containing manifest.json and part_*.jsonl")
+    parser = argparse.ArgumentParser(
+        description="Seed Redis from Colab JSON embedding export"
+    )
+    parser.add_argument(
+        "--export-dir",
+        default="e:\\MyProject\\providencetower-v2\\embed_chunk",
+        help="Directory containing manifest.json and part_*.jsonl",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=6379)
     parser.add_argument("--db", type=int, default=0)
     parser.add_argument("--password", default=None)
-    parser.add_argument("--index-name", default="rag_chunks_idx", help="Override index name (otherwise manifest/default)")
-    parser.add_argument("--key-prefix", default="rag:chunk:", help="Override key prefix (otherwise manifest/default)")
-    parser.add_argument("--distance-metric", default=None, help="Override distance metric (otherwise manifest/default)")
-    parser.add_argument("--write-batch-size", type=int, default=1000, help="Redis pipeline write batch size")
+    parser.add_argument(
+        "--index-name",
+        default="rag_chunks_idx",
+        help="Override index name (otherwise manifest/default)",
+    )
+    parser.add_argument(
+        "--key-prefix",
+        default="rag:chunk:",
+        help="Override key prefix (otherwise manifest/default)",
+    )
+    parser.add_argument(
+        "--distance-metric",
+        default=None,
+        help="Override distance metric (otherwise manifest/default)",
+    )
+    parser.add_argument(
+        "--write-batch-size",
+        type=int,
+        default=1000,
+        help="Redis pipeline write batch size",
+    )
     return parser
 
 
@@ -161,6 +190,7 @@ def main() -> None:
         distance_metric=args.distance_metric,
         write_batch_size=args.write_batch_size,
     )
+
 
 if __name__ == "__main__":
     main()

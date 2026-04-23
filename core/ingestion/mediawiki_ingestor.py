@@ -72,9 +72,16 @@ class MediaWikiAPIClient:
                 return payload
             except (requests.RequestException, ValueError, RuntimeError) as exc:
                 if attempt >= self.max_retries:
-                    raise RuntimeError(f"API request failed after retries: {params}") from exc
+                    raise RuntimeError(
+                        f"API request failed after retries: {params}"
+                    ) from exc
                 backoff_seconds = (2**attempt) * 0.5
-                LOGGER.warning("Request failed (attempt %s), retrying in %.1fs: %s", attempt + 1, backoff_seconds, exc)
+                LOGGER.warning(
+                    "Request failed (attempt %s), retrying in %.1fs: %s",
+                    attempt + 1,
+                    backoff_seconds,
+                    exc,
+                )
                 time.sleep(backoff_seconds)
         raise RuntimeError("Unreachable retry flow in _request_json")
 
@@ -234,7 +241,9 @@ class WikiIngestor:
                             "title": title,
                             "source_title": discovered_title,
                             "output_file": None,
-                            "source_url": _build_source_url(self.base_wiki_url, page_id=page_id),
+                            "source_url": _build_source_url(
+                                self.base_wiki_url, page_id=page_id
+                            ),
                             "status": "skipped_redirect_phrase",
                         }
                     )
@@ -254,7 +263,9 @@ class WikiIngestor:
                         "title": title,
                         "source_title": discovered_title,
                         "output_file": str(file_path),
-                        "source_url": _build_source_url(self.base_wiki_url, page_id=page_id),
+                        "source_url": _build_source_url(
+                            self.base_wiki_url, page_id=page_id
+                        ),
                         "status": "ok",
                     }
                 )
@@ -267,17 +278,23 @@ class WikiIngestor:
                         "page_id": page_id,
                         "title": discovered_title,
                         "output_file": None,
-                        "source_url": _build_source_url(self.base_wiki_url, page_id=page_id),
+                        "source_url": _build_source_url(
+                            self.base_wiki_url, page_id=page_id
+                        ),
                         "status": "error",
                         "error": str(exc),
                     }
                 )
 
         manifest_path = self.output_dir / "manifest.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
         success = sum(1 for item in manifest if item["status"] == "ok")
-        skipped = sum(1 for item in manifest if item["status"] == "skipped_redirect_phrase")
+        skipped = sum(
+            1 for item in manifest if item["status"] == "skipped_redirect_phrase"
+        )
         failed = sum(1 for item in manifest if item["status"] == "error")
         summary = {
             "total": total,

@@ -23,7 +23,9 @@ def _print_banner() -> None:
     print(title)
     print(subtitle)
     print(line)
-    print("Guide: include the Ys game title in your query when possible (e.g., 'Ys X: Nordics'); it helps retrieval a lot.")
+    print(
+        "Guide: include the Ys game title in your query when possible (e.g., 'Ys X: Nordics'); it helps retrieval a lot."
+    )
     print("Commands: /clear (new session), /quit (exit)")
     print()
 
@@ -111,4 +113,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -59,7 +59,9 @@ class MarkdownChunker:
         self.overlap_chars = int(max_chars * overlap_ratio)
         self._image_pattern = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
         self._link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-        self._autolink_pattern = re.compile(r"<((?:https?://|data:)[^>\s]+)>", flags=re.IGNORECASE)
+        self._autolink_pattern = re.compile(
+            r"<((?:https?://|data:)[^>\s]+)>", flags=re.IGNORECASE
+        )
         self._http_pattern = re.compile(r"https?://[^\s)\]}]+", flags=re.IGNORECASE)
         self._data_uri_pattern = re.compile(r"data:[^\s)\]}]+", flags=re.IGNORECASE)
         self._orphan_label_pattern = re.compile(r"\[([^\[\]]+)\]")
@@ -110,7 +112,9 @@ class MarkdownChunker:
                 )
 
         manifest_path = self.output_dir / "chunk_manifest.json"
-        manifest_path.write_text(json.dumps(run_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        manifest_path.write_text(
+            json.dumps(run_manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
         success_count = sum(1 for item in run_manifest if item["status"] == "ok")
         error_count = len(run_manifest) - success_count
@@ -123,8 +127,14 @@ class MarkdownChunker:
             "manifest_path": str(manifest_path),
         }
 
-    def chunk_single_file(self, markdown_file: Path) -> tuple[Path, list[dict[str, Any]]]:
-        input_path = markdown_file if markdown_file.is_absolute() else (self.input_dir / markdown_file)
+    def chunk_single_file(
+        self, markdown_file: Path
+    ) -> tuple[Path, list[dict[str, Any]]]:
+        input_path = (
+            markdown_file
+            if markdown_file.is_absolute()
+            else (self.input_dir / markdown_file)
+        )
         input_path = input_path.resolve()
         if not input_path.exists():
             raise FileNotFoundError(f"Markdown file not found: {input_path}")
@@ -133,7 +143,9 @@ class MarkdownChunker:
 
         page_id, page_title = self._extract_page_metadata(input_path.name)
         content = input_path.read_text(encoding="utf-8")
-        blocks = self._parse_content_blocks(content, page_id=page_id, page_title=page_title, source_file=input_path.name)
+        blocks = self._parse_content_blocks(
+            content, page_id=page_id, page_title=page_title, source_file=input_path.name
+        )
 
         chunks: list[dict[str, Any]] = []
         chunk_idx = 1
@@ -202,10 +214,12 @@ class MarkdownChunker:
                 continue
 
             # Skip useless sections entirely
-            if (self._useless_section_pattern.search(section) or 
-                self._useless_section_pattern.search(subsection) or
-                "navigation" in section.lower() or 
-                "navigation" in subsection.lower()):
+            if (
+                self._useless_section_pattern.search(section)
+                or self._useless_section_pattern.search(subsection)
+                or "navigation" in section.lower()
+                or "navigation" in subsection.lower()
+            ):
                 idx += 1
                 continue
 
@@ -216,7 +230,7 @@ class MarkdownChunker:
                     table_lines.append(lines[idx].rstrip())
                     idx += 1
                 table_text = "\n".join(table_lines).strip()
-                
+
                 # Check if it's navigation or otherwise useless
                 if not self._is_navigation_table(table_text):
                     context = ChunkContext(
@@ -226,7 +240,11 @@ class MarkdownChunker:
                         subsection=subsection,
                         source_file=source_file,
                     )
-                    blocks.append(ContentBlock(block_type="table", text=table_text, context=context))
+                    blocks.append(
+                        ContentBlock(
+                            block_type="table", text=table_text, context=context
+                        )
+                    )
                 continue
 
             # It's a text block (paragraph)
@@ -253,7 +271,11 @@ class MarkdownChunker:
                     subsection=subsection,
                     source_file=source_file,
                 )
-                blocks.append(ContentBlock(block_type="text", text=paragraph_text, context=context))
+                blocks.append(
+                    ContentBlock(
+                        block_type="text", text=paragraph_text, context=context
+                    )
+                )
 
         return blocks
 
@@ -299,13 +321,19 @@ class MarkdownChunker:
             if len(chunk) <= self.max_chars:
                 normalized_chunks.append(chunk)
                 continue
-            normalized_chunks.extend(self._split_long_table_chunk(chunk, header, separator))
+            normalized_chunks.extend(
+                self._split_long_table_chunk(chunk, header, separator)
+            )
 
         return normalized_chunks
 
-    def _split_long_table_chunk(self, chunk: str, header: str, separator: str) -> list[str]:
+    def _split_long_table_chunk(
+        self, chunk: str, header: str, separator: str
+    ) -> list[str]:
         body = "\n".join(chunk.splitlines()[2:])
-        windows = self._char_windows(body, self.max_chars - len(header) - len(separator) - 2)
+        windows = self._char_windows(
+            body, self.max_chars - len(header) - len(separator) - 2
+        )
         return [f"{header}\n{separator}\n{window}".strip() for window in windows]
 
     def _split_by_paragraph(self, text: str) -> list[str]:
@@ -364,7 +392,10 @@ class MarkdownChunker:
             if not merged:
                 merged.append(chunk)
                 continue
-            if len(chunk) < self.min_chars and len(merged[-1]) + len(joiner) + len(chunk) <= self.max_chars:
+            if (
+                len(chunk) < self.min_chars
+                and len(merged[-1]) + len(joiner) + len(chunk) <= self.max_chars
+            ):
                 merged[-1] = f"{merged[-1]}{joiner}{chunk}"
                 continue
             merged.append(chunk)
@@ -400,9 +431,13 @@ class MarkdownChunker:
         return overlapped
 
     def _extract_page_metadata(self, filename: str) -> tuple[int, str]:
-        match = re.match(r"^(?P<id>\d+)__(?P<title>.+)\.md$", filename, flags=re.IGNORECASE)
+        match = re.match(
+            r"^(?P<id>\d+)__(?P<title>.+)\.md$", filename, flags=re.IGNORECASE
+        )
         if not match:
-            raise ValueError(f"Filename must follow '<page_id>__<title>.md', got: {filename}")
+            raise ValueError(
+                f"Filename must follow '<page_id>__<title>.md', got: {filename}"
+            )
         page_id = int(match.group("id"))
         page_title = match.group("title").replace("_", " ").strip()
         return page_id, page_title
@@ -435,8 +470,14 @@ class MarkdownChunker:
 
         # Check for navigation-related keywords in the table text
         nav_keywords = [
-            "Previous game", "Next game", "Timeline order", "Release order",
-            "Chronological order", "Main series", "Spin-offs", "Related games"
+            "Previous game",
+            "Next game",
+            "Timeline order",
+            "Release order",
+            "Chronological order",
+            "Main series",
+            "Spin-offs",
+            "Related games",
         ]
         if any(keyword.lower() in table_text.lower() for keyword in nav_keywords):
             return True
@@ -447,8 +488,13 @@ class MarkdownChunker:
             return True
         if len(lines) <= 3:
             small_nav_keywords = [
-                "characters", "areas", "walkthrough", "equipment & items",
-                "enemies & bosses", "music", "trophies"
+                "characters",
+                "areas",
+                "walkthrough",
+                "equipment & items",
+                "enemies & bosses",
+                "music",
+                "trophies",
             ]
             lowered = table_text.lower()
             if any(keyword in lowered for keyword in small_nav_keywords):

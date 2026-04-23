@@ -18,23 +18,44 @@ from core.embedding.redis_store import RedisVectorStore
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Embed chunked markdown files and store in Redis")
+    parser = argparse.ArgumentParser(
+        description="Embed chunked markdown files and store in Redis"
+    )
     parser.add_argument(
         "--input-dir",
         default=r"e:\MyProject\providencetower-v2\data\chunked_md",
         help="Directory containing *.chunked.md files",
     )
-    parser.add_argument("--model", default="BAAI/bge-small-en-v1.5", help="Embedding model name")
-    parser.add_argument("--device", default=None, help="Embedding device, e.g. cpu, cuda, cuda:0")
-    parser.add_argument("--batch-size", type=int, default=256, help="Embedding batch size")
+    parser.add_argument(
+        "--model", default="BAAI/bge-small-en-v1.5", help="Embedding model name"
+    )
+    parser.add_argument(
+        "--device", default=None, help="Embedding device, e.g. cpu, cuda, cuda:0"
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=256, help="Embedding batch size"
+    )
     parser.add_argument("--redis-host", default="127.0.0.1", help="Redis host")
     parser.add_argument("--redis-port", type=int, default=6379, help="Redis port")
     parser.add_argument("--redis-db", type=int, default=0, help="Redis DB index")
-    parser.add_argument("--redis-password", default=None, help="Redis password if required")
-    parser.add_argument("--index-name", default="rag_chunks_idx", help="Redis search index name")
-    parser.add_argument("--key-prefix", default="rag:chunk:", help="Redis key prefix for chunk docs")
-    parser.add_argument("--write-batch-size", type=int, default=1000, help="Redis pipeline write batch size")
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--redis-password", default=None, help="Redis password if required"
+    )
+    parser.add_argument(
+        "--index-name", default="rag_chunks_idx", help="Redis search index name"
+    )
+    parser.add_argument(
+        "--key-prefix", default="rag:chunk:", help="Redis key prefix for chunk docs"
+    )
+    parser.add_argument(
+        "--write-batch-size",
+        type=int,
+        default=1000,
+        help="Redis pipeline write batch size",
+    )
+    parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
     return parser
 
 
@@ -65,7 +86,9 @@ def main() -> None:
     )
 
     if not store.ping():
-        raise RuntimeError(f"Cannot connect to Redis at {args.redis_host}:{args.redis_port}")
+        raise RuntimeError(
+            f"Cannot connect to Redis at {args.redis_host}:{args.redis_port}"
+        )
 
     logger.info("Loading chunk documents from %s", input_dir)
     documents = embedding_service.load_documents_from_directory(input_dir)
@@ -79,7 +102,11 @@ def main() -> None:
     if not filtered_documents:
         raise RuntimeError("No chunk documents met the minimum length requirement")
 
-    logger.info("Embedding and writing %s chunks using model '%s'", len(filtered_documents), args.model)
+    logger.info(
+        "Embedding and writing %s chunks using model '%s'",
+        len(filtered_documents),
+        args.model,
+    )
     written = 0
     dim = 0
     index_ready = False
@@ -93,11 +120,15 @@ def main() -> None:
             continue
         if not index_ready:
             dim = int(batch_vectors.shape[1])
-            logger.info("Ensuring Redis vector index '%s' (dim=%s)", args.index_name, dim)
+            logger.info(
+                "Ensuring Redis vector index '%s' (dim=%s)", args.index_name, dim
+            )
             store.ensure_index(dim)
             index_ready = True
 
-        batch_written = store.upsert_documents(batch_docs, batch_vectors, batch_size=args.write_batch_size)
+        batch_written = store.upsert_documents(
+            batch_docs, batch_vectors, batch_size=args.write_batch_size
+        )
         written += batch_written
         logger.info(
             "Wrote batch %s to Redis: %s documents (cumulative=%s/%s)",

@@ -43,7 +43,9 @@ class FetcherNode:
     def run(self, state: RagState) -> RagState:
         state.add_trace("Fetcher node started.")
 
-        queries = [q.strip() for q in state.planner_state.planned_queries if str(q).strip()]
+        queries = [
+            q.strip() for q in state.planner_state.planned_queries if str(q).strip()
+        ]
         if not queries:
             state.add_trace("No planned queries found for fetching.")
             return state
@@ -56,7 +58,9 @@ class FetcherNode:
         for query in queries:
             state.add_trace(f"Fetching for query: '{query}'")
             try:
-                query_hits = self._search_query(query, top_k=settings.RERANK_TOP_K, entities=entities)
+                query_hits = self._search_query(
+                    query, top_k=settings.RERANK_TOP_K, entities=entities
+                )
                 ordered_hits = self._maybe_rerank(query, query_hits, state)
                 for rank, hit in enumerate(ordered_hits):
                     chunk_id = hit.chunk_id
@@ -74,16 +78,22 @@ class FetcherNode:
             all_hits.values(),
             key=lambda hit: (rank_by_chunk_id.get(hit.chunk_id, 10**6), hit.score),
         )
-        
+
         state.fetcher_state = FetcherState(chunks=sorted_hits)
-        
-        state.add_trace(f"Fetcher node completed. Total unique chunks retrieved: {len(sorted_hits)}")
+
+        state.add_trace(
+            f"Fetcher node completed. Total unique chunks retrieved: {len(sorted_hits)}"
+        )
         return state
 
-    def _search_query(self, query: str, *, top_k: int, entities: list[str]) -> list[ChunkHit]:
+    def _search_query(
+        self, query: str, *, top_k: int, entities: list[str]
+    ) -> list[ChunkHit]:
         query_vector = self.embedder.embed_query(query)
         filter_query = self._build_hybrid_filter_query(entities)
-        results = self.store.search_hybrid(query_vector, top_k=top_k, filter_query=filter_query)
+        results = self.store.search_hybrid(
+            query_vector, top_k=top_k, filter_query=filter_query
+        )
 
         hits: list[ChunkHit] = []
         for res in results:
@@ -101,7 +111,9 @@ class FetcherNode:
             )
         return hits
 
-    def _maybe_rerank(self, query: str, hits: list[ChunkHit], state: RagState) -> list[ChunkHit]:
+    def _maybe_rerank(
+        self, query: str, hits: list[ChunkHit], state: RagState
+    ) -> list[ChunkHit]:
         if not hits or not self.reranker:
             return hits
 
@@ -146,5 +158,7 @@ class FetcherNode:
         text = str(token).strip()
         text = re.sub(r"\s+", " ", text)
         text = text.replace("\\", "\\\\").replace('"', '\\"')
-        needs_quotes = any(ch.isspace() for ch in text) or any(ch in text for ch in "-:@()[]{}|")
-        return f"\"{text}\"" if needs_quotes else text
+        needs_quotes = any(ch.isspace() for ch in text) or any(
+            ch in text for ch in "-:@()[]{}|"
+        )
+        return f'"{text}"' if needs_quotes else text

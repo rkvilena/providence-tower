@@ -48,7 +48,7 @@ class RagGraph:
         elif self.phase == "thinker":
             graph.add_edge(START, "thinker")
             graph.add_edge("thinker", END)
-        
+
         return graph.compile()
 
     def _planner_node(self, graph_state: GraphState) -> GraphState:

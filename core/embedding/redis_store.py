@@ -80,7 +80,9 @@ class RedisVectorStore:
                 },
             ),
         ]
-        definition = IndexDefinition(prefix=[self.key_prefix], index_type=IndexType.HASH)
+        definition = IndexDefinition(
+            prefix=[self.key_prefix], index_type=IndexType.HASH
+        )
         self.client.ft(self.index_name).create_index(fields, definition=definition)
         LOGGER.info("Created Redis index '%s' (dim=%s)", self.index_name, vector_dim)
 
@@ -131,11 +133,22 @@ class RedisVectorStore:
         query = (
             Query(knn_query)
             .sort_by("score")
-            .return_fields("chunk_id", "page_id", "page_title", "section", "subsection", "source_file", "text", "score")
+            .return_fields(
+                "chunk_id",
+                "page_id",
+                "page_title",
+                "section",
+                "subsection",
+                "source_file",
+                "text",
+                "score",
+            )
             .paging(0, top_k)
             .dialect(2)
         )
-        result = self.client.ft(self.index_name).search(query, query_params={"vec": vec_bytes})
+        result = self.client.ft(self.index_name).search(
+            query, query_params={"vec": vec_bytes}
+        )
         return self._parse_ft_result(result)
 
     def search_hybrid(
@@ -205,7 +218,11 @@ class RedisVectorStore:
             flat_fields = raw[i + 1]
             fields: dict[str, Any] = {}
             for j in range(0, len(flat_fields), 2):
-                field_key = flat_fields[j].decode("utf-8") if isinstance(flat_fields[j], bytes) else str(flat_fields[j])
+                field_key = (
+                    flat_fields[j].decode("utf-8")
+                    if isinstance(flat_fields[j], bytes)
+                    else str(flat_fields[j])
+                )
                 field_val = flat_fields[j + 1]
                 if isinstance(field_val, bytes):
                     field_val = field_val.decode("utf-8", errors="ignore")

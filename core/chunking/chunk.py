@@ -30,13 +30,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(root_path / "data" / "chunked_md"),
         help="Directory where chunked markdown files will be written",
     )
-    all_parser.add_argument("--min-chars", type=int, default=500, help="Minimum target chars per chunk")
-    all_parser.add_argument("--max-chars", type=int, default=1000, help="Maximum target chars per chunk")
-    all_parser.add_argument("--overlap-ratio", type=float, default=0.1, help="Overlap ratio between chunks")
-    all_parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    all_parser.add_argument(
+        "--min-chars", type=int, default=500, help="Minimum target chars per chunk"
+    )
+    all_parser.add_argument(
+        "--max-chars", type=int, default=1000, help="Maximum target chars per chunk"
+    )
+    all_parser.add_argument(
+        "--overlap-ratio", type=float, default=0.1, help="Overlap ratio between chunks"
+    )
+    all_parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
 
     one_parser = subparsers.add_parser("one", help="Chunk one markdown file")
-    one_parser.add_argument("filename", help="Markdown filename to chunk (required), e.g. 2039__Games.md")
+    one_parser.add_argument(
+        "filename", help="Markdown filename to chunk (required), e.g. 2039__Games.md"
+    )
     one_parser.add_argument(
         "--input-dir",
         default=str(root_path / "data" / "raw_markdown"),
@@ -47,10 +57,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(root_path / "data" / "chunked_md"),
         help="Directory where chunked markdown files will be written",
     )
-    one_parser.add_argument("--min-chars", type=int, default=500, help="Minimum target chars per chunk")
-    one_parser.add_argument("--max-chars", type=int, default=1000, help="Maximum target chars per chunk")
-    one_parser.add_argument("--overlap-ratio", type=float, default=0.1, help="Overlap ratio between chunks")
-    one_parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    one_parser.add_argument(
+        "--min-chars", type=int, default=500, help="Minimum target chars per chunk"
+    )
+    one_parser.add_argument(
+        "--max-chars", type=int, default=1000, help="Maximum target chars per chunk"
+    )
+    one_parser.add_argument(
+        "--overlap-ratio", type=float, default=0.1, help="Overlap ratio between chunks"
+    )
+    one_parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
     return parser
 
 
