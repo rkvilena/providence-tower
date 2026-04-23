@@ -55,6 +55,18 @@ class PlannerNode:
             if not condensed_query:
                 condensed_query = state.user_query.strip()
 
+            entities: list[str] = []
+            seen_entities: set[str] = set()
+            for item in list(getattr(parsed, "entities", []) or []):
+                text = str(item).strip()
+                if not text:
+                    continue
+                key = text.lower()
+                if key in seen_entities:
+                    continue
+                seen_entities.add(key)
+                entities.append(text)
+
             planned_queries: list[str] = []
             seen: set[str] = set()
             for candidate in parsed.planned_queries:
@@ -84,6 +96,7 @@ class PlannerNode:
             return PlannerState(
                 condensed_query=condensed_query or planned_queries[0],
                 planned_queries=planned_queries,
+                entities=entities[:12],
                 reasoning=[str(item) for item in reasoning][:5],
                 source="llm",
             )
@@ -99,6 +112,7 @@ class PlannerNode:
         return PlannerState(
             condensed_query=fallback_query,
             planned_queries=[fallback_query] if fallback_query else [],
+            entities=[],
             reasoning=[
                 "Fell back to original user query due to unavailable planner LLM output.",
             ],

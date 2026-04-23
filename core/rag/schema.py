@@ -31,6 +31,7 @@ class PlannerState(BaseModel):
 
     condensed_query: str = ""
     planned_queries: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
     reasoning: list[str] = Field(default_factory=list)
     source: Literal["llm", "fallback_python"] = "fallback_python"
 

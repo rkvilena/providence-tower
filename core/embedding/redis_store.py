@@ -6,6 +6,9 @@ from typing import Any
 
 import numpy as np
 import redis
+from redis.commands.search.field import NumericField, TagField, TextField, VectorField
+from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+from redis.commands.search.query import Query
 
 from core.embedding.embedding_service import ChunkDocument
 
@@ -57,45 +60,28 @@ class RedisVectorStore:
         if self._index_exists():
             return
 
-        create_command = [
-            "FT.CREATE",
-            self.index_name,
-            "ON",
-            "HASH",
-            "PREFIX",
-            "1",
-            self.key_prefix,
-            "SCHEMA",
-            "chunk_id",
-            "TAG",
-            "page_id",
-            "NUMERIC",
-            "page_title",
-            "TEXT",
-            "section",
-            "TEXT",
-            "subsection",
-            "TEXT",
-            "source_file",
-            "TAG",
-            "text",
-            "TEXT",
-            "embedding",
-            "VECTOR",
-            "HNSW",
-            "10",
-            "TYPE",
-            "FLOAT32",
-            "DIM",
-            str(vector_dim),
-            "DISTANCE_METRIC",
-            self.distance_metric,
-            "M",
-            "16",
-            "EF_CONSTRUCTION",
-            "200",
+        fields = [
+            TagField("chunk_id"),
+            NumericField("page_id"),
+            TextField("page_title"),
+            TextField("section"),
+            TextField("subsection"),
+            TagField("source_file"),
+            TextField("text"),
+            VectorField(
+                "embedding",
+                "HNSW",
+                {
+                    "TYPE": "FLOAT32",
+                    "DIM": int(vector_dim),
+                    "DISTANCE_METRIC": self.distance_metric,
+                    "M": 16,
+                    "EF_CONSTRUCTION": 200,
+                },
+            ),
         ]
-        self.client.execute_command(*create_command)
+        definition = IndexDefinition(prefix=[self.key_prefix], index_type=IndexType.HASH)
+        self.client.ft(self.index_name).create_index(fields, definition=definition)
         LOGGER.info("Created Redis index '%s' (dim=%s)", self.index_name, vector_dim)
 
     def upsert_documents(
@@ -142,38 +128,73 @@ class RedisVectorStore:
     ) -> list[RedisSearchResult]:
         vec_bytes = np.asarray(query_vector, dtype=np.float32).tobytes()
         knn_query = f"{filter_query}=>[KNN {top_k} @embedding $vec AS score]"
-        cmd = [
-            "FT.SEARCH",
-            self.index_name,
-            knn_query,
-            "PARAMS",
-            "2",
-            "vec",
-            vec_bytes,
-            "SORTBY",
-            "score",
-            "RETURN",
-            "8",
-            "chunk_id",
-            "page_id",
-            "page_title",
-            "section",
-            "subsection",
-            "source_file",
-            "text",
-            "score",
-            "DIALECT",
-            "2",
-        ]
-        raw = self.client.execute_command(*cmd)
-        return self._parse_search_results(raw)
+        query = (
+            Query(knn_query)
+            .sort_by("score")
+            .return_fields("chunk_id", "page_id", "page_title", "section", "subsection", "source_file", "text", "score")
+            .paging(0, top_k)
+            .dialect(2)
+        )
+        result = self.client.ft(self.index_name).search(query, query_params={"vec": vec_bytes})
+        return self._parse_ft_result(result)
+
+    def search_hybrid(
+        self,
+        query_vector: np.ndarray,
+        *,
+        top_k: int = 20,
+        filter_query: str = "*",
+    ) -> list[RedisSearchResult]:
+        return self.search_similar(query_vector, top_k=top_k, filter_query=filter_query)
 
     def _index_exists(self) -> bool:
         try:
-            self.client.execute_command("FT.INFO", self.index_name)
+            self.client.ft(self.index_name).info()
             return True
         except redis.ResponseError:
             return False
+
+    def _parse_ft_result(self, result: Any) -> list[RedisSearchResult]:
+        docs = list(getattr(result, "docs", []) or [])
+        results: list[RedisSearchResult] = []
+        for doc in docs:
+            key = str(getattr(doc, "id", "") or "")
+
+            def _get_attr(name: str) -> Any:
+                if hasattr(doc, name):
+                    return getattr(doc, name)
+                return None
+
+            def _to_str(value: Any) -> str:
+                if value is None:
+                    return ""
+                if isinstance(value, bytes):
+                    return value.decode("utf-8", errors="ignore")
+                return str(value)
+
+            score_raw = _get_attr("score")
+            try:
+                score = float(score_raw)
+            except Exception:
+                score = 0.0
+
+            text = _to_str(_get_attr("text"))
+            results.append(
+                RedisSearchResult(
+                    key=key,
+                    score=score,
+                    text=text,
+                    metadata={
+                        "chunk_id": _to_str(_get_attr("chunk_id")) or key,
+                        "page_id": _to_str(_get_attr("page_id")),
+                        "page_title": _to_str(_get_attr("page_title")),
+                        "section": _to_str(_get_attr("section")) or None,
+                        "subsection": _to_str(_get_attr("subsection")) or None,
+                        "source_file": _to_str(_get_attr("source_file")) or None,
+                    },
+                )
+            )
+        return results
 
     def _parse_search_results(self, raw: list[Any]) -> list[RedisSearchResult]:
         if not raw:

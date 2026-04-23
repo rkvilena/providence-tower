@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from core.env import settings
 from core.embedding.embedding_service import EmbeddingService
@@ -47,13 +48,15 @@ class FetcherNode:
             state.add_trace("No planned queries found for fetching.")
             return state
 
+        entities = self._normalize_entities(state.planner_state.entities)
+
         all_hits: dict[str, ChunkHit] = {}
         rank_by_chunk_id: dict[str, int] = {}
 
         for query in queries:
             state.add_trace(f"Fetching for query: '{query}'")
             try:
-                query_hits = self._search_query(query, top_k=settings.RERANK_TOP_K)
+                query_hits = self._search_query(query, top_k=settings.RERANK_TOP_K, entities=entities)
                 ordered_hits = self._maybe_rerank(query, query_hits, state)
                 for rank, hit in enumerate(ordered_hits):
                     chunk_id = hit.chunk_id
@@ -77,9 +80,10 @@ class FetcherNode:
         state.add_trace(f"Fetcher node completed. Total unique chunks retrieved: {len(sorted_hits)}")
         return state
 
-    def _search_query(self, query: str, *, top_k: int) -> list[ChunkHit]:
+    def _search_query(self, query: str, *, top_k: int, entities: list[str]) -> list[ChunkHit]:
         query_vector = self.embedder.embed_query(query)
-        results = self.store.search_similar(query_vector, top_k=top_k)
+        filter_query = self._build_hybrid_filter_query(entities)
+        results = self.store.search_hybrid(query_vector, top_k=top_k, filter_query=filter_query)
 
         hits: list[ChunkHit] = []
         for res in results:
@@ -109,3 +113,38 @@ class FetcherNode:
         if rerank_result.passed_threshold:
             return rerank_result.hits
         return hits
+
+    def _normalize_entities(self, entities: list[str]) -> list[str]:
+        stop = {"ys", "game", "games", "series"}
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for e in entities or []:
+            text = str(e).strip()
+            if not text:
+                continue
+            low = text.lower()
+            if low in stop:
+                continue
+            if len(low) < 3:
+                continue
+            if low in seen:
+                continue
+            seen.add(low)
+            cleaned.append(text)
+        return cleaned[:8]
+
+    def _build_hybrid_filter_query(self, entities: list[str]) -> str:
+        if not entities:
+            return "*"
+        tokens = [self._escape_query_token(e) for e in entities if e.strip()]
+        if not tokens:
+            return "*"
+        joined = "|".join(tokens)
+        return f"@text:({joined})"
+
+    def _escape_query_token(self, token: str) -> str:
+        text = str(token).strip()
+        text = re.sub(r"\s+", " ", text)
+        text = text.replace("\\", "\\\\").replace('"', '\\"')
+        needs_quotes = any(ch.isspace() for ch in text) or any(ch in text for ch in "-:@()[]{}|")
+        return f"\"{text}\"" if needs_quotes else text
