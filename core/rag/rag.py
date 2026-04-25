@@ -111,12 +111,7 @@ def main() -> None:
         parser.error("--phase is required unless --full-flow is set")
 
     try:
-        history_store: RedisHistoryStore | None = RedisHistoryStore(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            db=settings.REDIS_DB,
-            password=settings.REDIS_PASSWORD or None,
-        )
+        history_store: RedisHistoryStore | None = RedisHistoryStore()
         try:
             history_store.ping()
         except Exception as exc:

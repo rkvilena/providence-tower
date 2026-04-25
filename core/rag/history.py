@@ -6,6 +6,7 @@ import string
 
 import redis
 
+from core.env import settings
 from core.rag.schema import HistoryTurn
 
 
@@ -22,10 +23,10 @@ class RedisHistoryStore:
     def __init__(
         self,
         *,
-        host: str = "127.0.0.1",
-        port: int = 6379,
-        db: int = 0,
-        password: str | None = None,
+        host: str = settings.REDIS_HOST,
+        port: int = settings.REDIS_PORT,
+        db: int = settings.REDIS_DB,
+        password: str | None = settings.REDIS_PASSWORD or None,
         key_prefix: str = "rag:session:",
     ) -> None:
         self.key_prefix = key_prefix

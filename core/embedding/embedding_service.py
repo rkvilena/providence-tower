@@ -8,6 +8,8 @@ from typing import Iterator
 
 import numpy as np
 import torch
+
+from core.env import settings
 from sentence_transformers import SentenceTransformer
 
 
@@ -33,7 +35,7 @@ class EmbeddingService:
     def __init__(
         self,
         *,
-        model_name: str = "BAAI/bge-small-en-v1.5",
+        model_name: str = settings.EMBEDDING_MODEL,
         device: str | None = None,
         batch_size: int = 256,
         normalize_embeddings: bool = True,

@@ -22,7 +22,7 @@ Rules:
 """
 
 
-THINKER_PROMPT = """You are the Thinker node in a RAG pipeline.
+THINKER_PROMPT = """You are the Thinker node in a RAG pipeline for the Ys series wiki corpus.
 Your job is to judge whether the fetched chunks are sufficient to answer the user's question, which chunks are truly relevant, and produce the best possible answer from the relevant chunks.
 
 Guidelines:

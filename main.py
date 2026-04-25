@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import warnings
 from pathlib import Path
 
 if __package__ is None or __package__ == "":
@@ -31,12 +32,7 @@ def _print_banner() -> None:
 
 
 def _build_history_store() -> RedisHistoryStore | None:
-    store = RedisHistoryStore(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        db=settings.REDIS_DB,
-        password=settings.REDIS_PASSWORD or None,
-    )
+    store = RedisHistoryStore()
     try:
         store.ping()
         return store
@@ -45,6 +41,14 @@ def _build_history_store() -> RedisHistoryStore | None:
 
 
 def main() -> None:
+    # Suppress Hugging Face Hub deprecation warnings
+    warnings.filterwarnings(
+        "ignore",
+        message=".*resume_download.*is deprecated.*",
+        category=FutureWarning,
+        module="huggingface_hub",
+    )
+
     _print_banner()
 
     store = _build_history_store()
@@ -83,22 +87,10 @@ def main() -> None:
             print(f"Session cleared. New session: {session_id}")
             continue
 
-        history = store.load_history(session_id) if store is not None else []
-        state = RagState(session_id=session_id, user_query=raw, history=history)
+        state = RagState(session_id=session_id, user_query=raw)
         result = rag.run(state)
 
         response_text = (result.thinker_state.response or "").strip()
-        if store is not None and response_text:
-            try:
-                store.append_turn(
-                    session_id,
-                    question=raw,
-                    answer=response_text,
-                    history_window=settings.RAG_HISTORY_WINDOW,
-                    ttl_seconds=settings.RAG_SESSION_TTL_SECONDS,
-                )
-            except Exception:
-                pass
 
         print()
         print(response_text if response_text else "(No response)")

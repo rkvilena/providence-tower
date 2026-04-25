@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,6 +16,10 @@ class Message(BaseModel):
     role: str
     content: str
     timestamp: str = Field(default_factory=now_utc_iso)
+
+
+class GraphState(TypedDict):
+    state: RagState
 
 
 class HistoryTurn(BaseModel):
