@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Providence Tower v2 — RAG Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    .msg-in { animation: fade-in 0.25s ease-out; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .spinner { border: 3px solid #e5e7eb; border-top-color: #3b82f6; border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-2xl mx-auto bg-white rounded-2xl shadow-lg flex flex-col h-[85vh]"
+       x-data="chat()"
+       x-cloak>
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
+      <div>
+        <h1 class="text-lg font-semibold text-gray-800">Providence Tower v2</h1>
+        <p class="text-xs text-gray-400">Ys series RAG chat</p>
+      </div>
+      <button @click="resetChat()"
+              class="text-sm text-gray-500 hover:text-gray-700 border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-1.5 transition-colors">
+        + New Chat
+      </button>
+    </div>
+
+    <!-- Messages -->
+    <div class="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+         x-ref="messages"
+         @scroll.throttle="checkScroll()">
+      <template x-for="(msg, i) in messages" :key="i">
+        <div class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+          <div class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed msg-in"
+               :class="msg.role === 'user'
+                 ? 'bg-blue-600 text-white rounded-br-md'
+                 : 'bg-gray-100 text-gray-800 rounded-bl-md'">
+            <div class="whitespace-pre-wrap" x-html="render(msg.content)"></div>
+            <template x-if="msg.trace && msg.trace.length">
+              <details class="mt-2 text-xs opacity-70">
+                <summary class="cursor-pointer select-none">Debug trace</summary>
+                <div class="mt-1 space-y-0.5">
+                  <template x-for="(line, j) in msg.trace.slice(-10)" :key="j">
+                    <div x-text="line"></div>
+                  </template>
+                </div>
+              </details>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- Loading indicator -->
+      <div x-show="loading" class="flex justify-start">
+        <div class="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-2 text-sm text-gray-500">
+          <div class="spinner"></div>
+          <span>Thinking…</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="border-t border-gray-200 px-6 py-4 shrink-0">
+      <form @submit.prevent="send()" class="flex gap-3">
+        <input type="text"
+               x-model="input"
+               placeholder="Ask about the Ys series…"
+               :disabled="loading"
+               class="flex-1 rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors" />
+        <button type="submit"
+                :disabled="loading || !input.trim()"
+                class="rounded-xl bg-blue-600 text-white px-5 py-2.5 text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
+          Send
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function chat() {
+      return {
+        messages: [],
+        input: '',
+        loading: false,
+        sessionId: self.crypto.randomUUID(),
+        autoScroll: true,
+
+        init() {
+          this.$watch('messages', () => {
+            if (this.autoScroll) this.$nextTick(() => this.scrollDown());
+          });
+          this.$watch('loading', () => {
+            if (!this.loading) this.$nextTick(() => this.scrollDown());
+          });
+        },
+
+        scrollDown() {
+          const el = this.$refs.messages;
+          if (el) el.scrollTop = el.scrollHeight;
+        },
+
+        checkScroll() {
+          const el = this.$refs.messages;
+          if (!el) return;
+          const threshold = 60;
+          this.autoScroll = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+        },
+
+        async send() {
+          const query = this.input.trim();
+          if (!query || this.loading) return;
+
+          this.messages.push({ role: 'user', content: query });
+          this.input = '';
+          this.loading = true;
+
+          try {
+            const resp = await fetch('/rag/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query, session_id: this.sessionId }),
+            });
+
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+              throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+
+            const data = await resp.json();
+            this.sessionId = data.session_id;
+            this.messages.push({
+              role: 'assistant',
+              content: data.response || '(No response generated)',
+              trace: data.debug_trace || [],
+            });
+          } catch (err) {
+            this.messages.push({
+              role: 'assistant',
+              content: `**Error:** ${err.message}`,
+            });
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        resetChat() {
+          this.messages = [];
+          this.sessionId = self.crypto.randomUUID();
+          this.loading = false;
+          this.input = '';
+          this.autoScroll = true;
+        },
+
+        render(text) {
+          // Browser-native HTML escaping, then apply inline Markdown + URL linking
+          const div = document.createElement('div');
+          div.appendChild(document.createTextNode(text));
+          return div.innerHTML
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/`(.+?)`/g, '<code class="bg-gray-200 rounded px-1 text-xs">$1</code>')
+            .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline hover:text-blue-800">$1</a>')
+            .replace(/\n/g, '<br>');
+        },
+      };
+    }
+  </script>
+</body>
+</html>
