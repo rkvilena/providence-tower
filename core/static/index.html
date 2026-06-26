@@ -128,7 +128,10 @@
 
             if (!resp.ok) {
               const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-              throw new Error(err.detail || `HTTP ${resp.status}`);
+              const msg = resp.status === 429
+                ? err.detail || 'Rate limit exceeded. Usage is limited due to the application\'s nature as portfolio.'
+                : err.detail || `HTTP ${resp.status}`;
+              throw new Error(msg);
             }
 
             const data = await resp.json();

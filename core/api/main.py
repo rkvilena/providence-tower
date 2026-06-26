@@ -34,18 +34,21 @@ def create_app(
     *,
     title: str = "Providence Tower v2 API",
     version: str = "2.0.0",
-    docs_url: str = "/docs",
-    redoc_url: str = "/redoc",
-    openapi_url: str = "/openapi.json",
     cors_origins: list[str] | None = None,
 ) -> FastAPI:
-    """Build and return a configured FastAPI application instance."""
+    """Build and return a configured FastAPI application instance.
+
+    .. note::
+       API docs are intentionally disabled (``docs_url``, ``redoc_url`` and
+       ``openapi_url`` are all set to *None*) to avoid exposing the backend
+       surface in production.
+    """
     app = FastAPI(
         title=title,
         version=version,
-        docs_url=docs_url,
-        redoc_url=redoc_url,
-        openapi_url=openapi_url,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
         lifespan=lifespan,
     )
 

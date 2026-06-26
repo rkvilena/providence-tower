@@ -63,6 +63,11 @@ class Settings(BaseModel):
     RERANK_TOP_K: int
     RERANK_MIN_TOP_SCORE: float
 
+    RATE_LIMIT_SHORT_WINDOW_SECONDS: int
+    RATE_LIMIT_SHORT_MAX_REQUESTS: int
+    RATE_LIMIT_LONG_WINDOW_SECONDS: int
+    RATE_LIMIT_LONG_MAX_REQUESTS: int
+
 
 settings = Settings(
     EMBEDDING_MODEL=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
@@ -83,4 +88,16 @@ settings = Settings(
     RERANK_MODEL=os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
     RERANK_TOP_K=_to_int(os.getenv("RERANK_TOP_K"), default=20),
     RERANK_MIN_TOP_SCORE=_to_float(os.getenv("RERANK_MIN_TOP_SCORE"), default=0.7),
+    RATE_LIMIT_SHORT_WINDOW_SECONDS=_to_int(
+        os.getenv("RATE_LIMIT_SHORT_WINDOW_SECONDS"), default=60
+    ),
+    RATE_LIMIT_SHORT_MAX_REQUESTS=_to_int(
+        os.getenv("RATE_LIMIT_SHORT_MAX_REQUESTS"), default=5
+    ),
+    RATE_LIMIT_LONG_WINDOW_SECONDS=_to_int(
+        os.getenv("RATE_LIMIT_LONG_WINDOW_SECONDS"), default=86400
+    ),
+    RATE_LIMIT_LONG_MAX_REQUESTS=_to_int(
+        os.getenv("RATE_LIMIT_LONG_MAX_REQUESTS"), default=30
+    ),
 )

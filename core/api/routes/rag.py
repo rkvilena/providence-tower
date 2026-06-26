@@ -5,6 +5,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from core.api.rate_limiter import get_redis_rate_limiter
+
 from core.api.dependencies import get_rag_service
 from core.api.schemas import (
     ChatRequest,
@@ -47,12 +49,16 @@ def _build_chat_response(state: RagState) -> ChatResponse:
 @router.post(
     "/chat",
     response_model=ChatResponse,
-    responses={422: {"model": ErrorResponse}},
+    responses={
+        422: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+    },
     summary="Send a query through the full RAG pipeline",
 )
 async def chat(
     body: ChatRequest,
     svc: RagService = Depends(get_rag_service),
+    _rate_limiter: None = Depends(get_redis_rate_limiter),
 ) -> ChatResponse:
     """Execute the planner → fetcher → thinker → context pipeline.
 
