@@ -6,7 +6,7 @@ Algorithm (Seeding Colab-exported embeddings into Redis):
 2) Choose Redis index parameters (index_name, key_prefix, distance_metric) from:
    - CLI overrides (highest priority), then
    - manifest fields if present, otherwise defaults used in the codebase.
-3) Connect to Redis through the project’s RedisVectorStore.
+3) Connect to Redis through the project's RedisVectorStore.
 4) Ensure the vector index exists with the expected vector_dim.
 5) For each part file:
    - Stream rows (one JSON per line).
@@ -17,6 +17,7 @@ Algorithm (Seeding Colab-exported embeddings into Redis):
 How to run:
 python core/embedding/seed_embeddings.py
 python core/embedding/seed_embeddings.py --export-dir e:\\MyProject\\providencetower-v2\\embed_chunk --index-name rag_chunks_idx --key-prefix rag:chunk: --distance-metric COSINE
+python core/embedding/seed_embeddings.py --resume-from 41
 """
 
 import argparse
@@ -32,20 +33,16 @@ if __package__ is None or __package__ == "":
 
 import numpy as np
 
-from core.embedding.redis_store import RedisVectorStore
+from core.embedding.embedding_service import ChunkDocument
+from core.vector_store_factory import create_vector_store
 
 
 def seed(
     export_dir: Path,
     *,
-    host: str,
-    port: int,
-    db: int,
-    password: str | None,
-    index_name: str | None,
-    key_prefix: str | None,
-    distance_metric: str | None,
-    write_batch_size: int,
+    index_name: str | None = None,
+    write_batch_size: int = 1000,
+    resume_from: int | None = None,
 ) -> None:
     manifest_path = export_dir / "manifest.json"
     if not manifest_path.exists():
@@ -56,10 +53,6 @@ def seed(
     resolved_index_name = str(
         index_name or manifest.get("index_name") or "rag_chunks_idx"
     )
-    resolved_key_prefix = str(key_prefix or manifest.get("key_prefix") or "rag:chunk:")
-    resolved_distance_metric = str(
-        distance_metric or manifest.get("distance_metric") or "COSINE"
-    )
     vector_dim = int(manifest.get("vector_dim") or 0)
     if vector_dim < 1:
         raise ValueError("Invalid vector_dim in manifest")
@@ -68,23 +61,14 @@ def seed(
     if not isinstance(parts, list) or not parts:
         raise ValueError("No parts found in manifest")
 
-    store = RedisVectorStore(
-        host=host,
-        port=port,
-        db=db,
-        password=password,
-        index_name=resolved_index_name,
-        key_prefix=resolved_key_prefix,
-        distance_metric=resolved_distance_metric,
-    )
-
-    if not store.ping():
-        raise RuntimeError(f"Cannot connect to Redis at {host}:{port}/{db}")
+    store = create_vector_store(index_name=resolved_index_name)
 
     store.ensure_index(vector_dim)
 
-    total = 0
+    total_skipped = 0
+    total_written = 0
     for part in parts:
+        part_number = part.get("part")
         part_file_name = part.get("file") or part.get("metadata_file")
         if not part_file_name:
             raise ValueError(f"Part entry missing file field: {part}")
@@ -93,9 +77,31 @@ def seed(
         if not part_path.exists():
             raise FileNotFoundError(f"Part file not found: {part_path}")
 
-        pipe = store.client.pipeline(transaction=False)
+        # --resume-from: skip parts whose part number is less than resume_from
+        if (
+            resume_from is not None
+            and part_number is not None
+            and part_number < resume_from
+        ):
+            part_rows = part.get("rows", 0) or 0
+            if part_rows == 0:
+                # Count rows manually if manifest doesn't have row count
+                with part_path.open("r", encoding="utf-8") as f:
+                    part_rows = sum(1 for line in f if line.strip())
+            total_skipped += part_rows
+            print(
+                f"Skipped {part_file_name}: {part_rows} rows (cumulative skipped={total_skipped})"
+            )
+            continue
+
+        # Build items: convert raw JSONL rows into Upsertable format.
+        # LocalRedisVectorStore uses flat HASH pipeline.
+        # UpstashVectorStore uses nested metadata via its own upsert.
+        # We use the store's upsert_documents but first convert rows to ChunkDocuments.
+
         rows_in_part = 0
-        buffered = 0
+        batch_docs: list[ChunkDocument] = []
+        batch_vecs: list[np.ndarray] = []
         with part_path.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -111,68 +117,65 @@ def seed(
                         f"Embedding dim mismatch for chunk_id={row.get('chunk_id')}: got={len(embedding)} expected={vector_dim}"
                     )
 
-                key = f"{resolved_key_prefix}{row['chunk_id']}"
-                mapping = {
-                    "chunk_id": row["chunk_id"],
-                    "page_id": row["page_id"],
-                    "page_title": row["page_title"],
-                    "section": row["section"],
-                    "subsection": row["subsection"],
-                    "source_file": row["source_file"],
-                    "text": row["text"],
-                    "embedding": np.asarray(embedding, dtype=np.float32).tobytes(),
-                }
-                pipe.hset(key, mapping=mapping)
+                batch_docs.append(
+                    ChunkDocument(
+                        chunk_id=str(row["chunk_id"]),
+                        page_id=int(row.get("page_id", 0)),
+                        page_title=str(row.get("page_title", "")),
+                        section=str(row.get("section", "")),
+                        subsection=str(row.get("subsection", "")),
+                        source_file=str(row.get("source_file", "")),
+                        text=str(row.get("text", "")),
+                    )
+                )
+                batch_vecs.append(np.asarray(embedding, dtype=np.float32))
                 rows_in_part += 1
-                buffered += 1
-                if buffered >= write_batch_size:
-                    pipe.execute()
-                    pipe = store.client.pipeline(transaction=False)
-                    buffered = 0
 
-        if buffered:
-            pipe.execute()
-        total += rows_in_part
-        print(f"Seeded {part_file_name}: {rows_in_part} rows (cumulative={total})")
+                if len(batch_docs) >= write_batch_size:
+                    store.upsert_documents(batch_docs, np.array(batch_vecs))
+                    batch_docs.clear()
+                    batch_vecs.clear()
 
-    print(
-        f"Done. Seeded {total} rows into Redis {host}:{port}/{db} index={resolved_index_name}"
-    )
+        if batch_docs:
+            store.upsert_documents(batch_docs, np.array(batch_vecs))
+
+        total_written += rows_in_part
+        print(
+            f"Seeded {part_file_name}: {rows_in_part} rows (cumulative={total_written})"
+        )
+
+    print(f"Done. Seeded {total_written} rows into index={resolved_index_name}")
+    if total_skipped > 0:
+        print(f"  (skipped {total_skipped} rows via --resume-from={resume_from})")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Seed Redis from Colab JSON embedding export"
+        description="Seed vector store from Colab JSON embedding export"
     )
     parser.add_argument(
         "--export-dir",
         default="e:\\MyProject\\providencetower-v2\\embed_chunk",
         help="Directory containing manifest.json and part_*.jsonl",
     )
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=6379)
-    parser.add_argument("--db", type=int, default=0)
-    parser.add_argument("--password", default=None)
     parser.add_argument(
         "--index-name",
         default="rag_chunks_idx",
         help="Override index name (otherwise manifest/default)",
     )
     parser.add_argument(
-        "--key-prefix",
-        default="rag:chunk:",
-        help="Override key prefix (otherwise manifest/default)",
-    )
-    parser.add_argument(
-        "--distance-metric",
-        default=None,
-        help="Override distance metric (otherwise manifest/default)",
-    )
-    parser.add_argument(
         "--write-batch-size",
         type=int,
         default=1000,
-        help="Redis pipeline write batch size",
+        help="Vector store write batch size",
+    )
+    parser.add_argument(
+        "--resume-from",
+        type=int,
+        default=None,
+        help="Part number to resume from (inclusive). "
+        "All parts with a lower part number are skipped. "
+        "E.g. --resume-from 41 starts at part_00041.jsonl.",
     )
     return parser
 
@@ -181,14 +184,9 @@ def main() -> None:
     args = build_parser().parse_args()
     seed(
         export_dir=Path(args.export_dir),
-        host=args.host,
-        port=args.port,
-        db=args.db,
-        password=args.password,
         index_name=args.index_name,
-        key_prefix=args.key_prefix,
-        distance_metric=args.distance_metric,
         write_batch_size=args.write_batch_size,
+        resume_from=args.resume_from,
     )
 
 

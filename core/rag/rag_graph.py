@@ -9,12 +9,13 @@ from core.rag.fetcher import FetcherNode
 from core.rag.thinker import ThinkerNode
 from core.rag.context import ContextNode
 from core.rag.schema import ChunkHit, RagState, GraphState
+from core.vector_store.protocol import VectorStoreProtocol
 
 
 class RagGraph:
-    def __init__(self) -> None:
+    def __init__(self, vector_store: VectorStoreProtocol) -> None:
         self.planner = PlannerNode()
-        self.fetcher = FetcherNode()
+        self.fetcher = FetcherNode(vector_store=vector_store)
         self.thinker = ThinkerNode()
         self.context = ContextNode()
         self.graph = self._build()
@@ -24,7 +25,6 @@ class RagGraph:
         return result["state"]
 
     def warmup(self) -> None:
-        self.fetcher.store.ping()
         _ = self.fetcher.embedder.embed_query("warmup")
         if self.fetcher.reranker is not None:
             _ = self.fetcher.reranker.rerank(

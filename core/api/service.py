@@ -8,6 +8,8 @@ from core.env import settings
 from core.rag.history import RedisHistoryStore, generate_session_id
 from core.rag.rag_graph import RagGraph
 from core.rag.schema import RagState
+from core.vector_store.protocol import VectorStoreProtocol
+from core.vector_store_factory import create_vector_store
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,12 +28,14 @@ class RagService:
 
         self._rag: RagGraph | None = None
         self._history_store: RedisHistoryStore | None = None
+        self._vector_store: VectorStoreProtocol | None = None
         self._warmed_up: bool = False
 
     # ---- lifecycle -----------------------------------------------------------
 
     def startup(self) -> None:
         """Called once when the application starts (FastAPI lifespan)."""
+        self._vector_store = create_vector_store()
         self._init_history_store()
         self._init_rag()
         self._warmup()
@@ -40,6 +44,7 @@ class RagService:
         """Called once when the application shuts down."""
         self._rag = None
         self._history_store = None
+        self._vector_store = None
         self._warmed_up = False
 
     # ---- public helpers ------------------------------------------------------
@@ -145,11 +150,13 @@ class RagService:
             LOGGER.info("Redis session history: OFF (%s)", exc)
 
     def _init_rag(self) -> None:
-        self._rag = RagGraph()
+        if self._vector_store is None:
+            self._vector_store = create_vector_store()
+        self._rag = RagGraph(vector_store=self._vector_store)
 
     def _ensure_rag(self) -> RagGraph:
         if self._rag is None:
-            self._rag = RagGraph()
+            self._init_rag()
         return self._rag
 
     def _warmup(self) -> None:

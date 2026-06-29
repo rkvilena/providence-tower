@@ -13,13 +13,14 @@ if __package__ is None or __package__ == "":
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-from core.rag.rag_graph import RagGraph
 from core.env import settings
 from core.rag.history import RedisHistoryStore, generate_session_id
 from core.rag.fetcher import FetcherNode
 from core.rag.planner import PlannerNode
+from core.rag.rag_graph import RagGraph
 from core.rag.schema import Message, RagState
 from core.rag.thinker import ThinkerNode
+from core.vector_store_factory import create_vector_store
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,6 +112,7 @@ def main() -> None:
         parser.error("--phase is required unless --full-flow is set")
 
     try:
+        vector_store = create_vector_store()
         history_store: RedisHistoryStore | None = RedisHistoryStore()
         try:
             history_store.ping()
@@ -162,14 +164,14 @@ def main() -> None:
 
         if args.full_flow:
             state.phase = "thinker"
-            result_state = RagGraph().run(state)
+            result_state = RagGraph(vector_store=vector_store).run(state)
         else:
             if args.phase == "planner":
                 state.phase = "planner"
                 result_state = PlannerNode().run(state)
             elif args.phase == "fetcher":
                 state.phase = "fetcher"
-                result_state = FetcherNode().run(state)
+                result_state = FetcherNode(vector_store=vector_store).run(state)
             elif args.phase == "thinker":
                 state.phase = "thinker"
                 result_state = ThinkerNode().run(state)

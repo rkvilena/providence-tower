@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import secrets
 import string
+from typing import Any
 
 import redis
 
-from core.env import settings
 from core.rag.schema import HistoryTurn
+from core.redis_client import get_text_client
 
 
 _NANOID_ALPHABET = string.ascii_letters + string.digits
@@ -22,21 +23,15 @@ def generate_session_id(*, length: int = 12) -> str:
 class RedisHistoryStore:
     def __init__(
         self,
+        client: redis.Redis | None = None,
         *,
-        host: str = settings.REDIS_HOST,
-        port: int = settings.REDIS_PORT,
-        db: int = settings.REDIS_DB,
-        password: str | None = settings.REDIS_PASSWORD or None,
         key_prefix: str = "rag:session:",
     ) -> None:
         self.key_prefix = key_prefix
-        self.client = redis.Redis(
-            host=host,
-            port=port,
-            db=db,
-            password=password,
-            decode_responses=True,
-        )
+        if client is not None:
+            self.client = client
+        else:
+            self.client = get_text_client()
 
     def ping(self) -> bool:
         return bool(self.client.ping())

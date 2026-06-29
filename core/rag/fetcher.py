@@ -5,9 +5,9 @@ import re
 
 from core.env import settings
 from core.embedding.embedding_service import EmbeddingService
-from core.embedding.redis_store import RedisVectorStore
 from core.rag.reranker import CrossEncoderReranker
 from core.rag.schema import ChunkHit, FetcherState, RagState
+from core.vector_store.protocol import VectorStoreProtocol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -15,17 +15,10 @@ LOGGER = logging.getLogger(__name__)
 class FetcherNode:
     def __init__(
         self,
-        *,
-        index_name: str = "rag_chunks_idx",
+        vector_store: VectorStoreProtocol,
     ) -> None:
+        self.store = vector_store
         self.embedder = EmbeddingService()
-        self.store = RedisVectorStore(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            db=settings.REDIS_DB,
-            password=settings.REDIS_PASSWORD,
-            index_name=index_name,
-        )
         self.reranker = (
             CrossEncoderReranker(
                 model_name=settings.RERANK_MODEL,
@@ -85,9 +78,8 @@ class FetcherNode:
         self, query: str, *, top_k: int, entities: list[str]
     ) -> list[ChunkHit]:
         query_vector = self.embedder.embed_query(query)
-        filter_query = self._build_hybrid_filter_query(entities)
         results = self.store.search_hybrid(
-            query_vector, top_k=top_k, filter_query=filter_query
+            query_vector, top_k=top_k, filter_entities=entities
         )
 
         hits: list[ChunkHit] = []
@@ -139,21 +131,3 @@ class FetcherNode:
             seen.add(low)
             cleaned.append(text)
         return cleaned[:8]
-
-    def _build_hybrid_filter_query(self, entities: list[str]) -> str:
-        if not entities:
-            return "*"
-        tokens = [self._escape_query_token(e) for e in entities if e.strip()]
-        if not tokens:
-            return "*"
-        joined = "|".join(tokens)
-        return f"@text:({joined})"
-
-    def _escape_query_token(self, token: str) -> str:
-        text = str(token).strip()
-        text = re.sub(r"\s+", " ", text)
-        text = text.replace("\\", "\\\\").replace('"', '\\"')
-        needs_quotes = any(ch.isspace() for ch in text) or any(
-            ch in text for ch in "-:@()[]{}|"
-        )
-        return f'"{text}"' if needs_quotes else text

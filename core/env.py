@@ -68,6 +68,11 @@ class Settings(BaseModel):
     RATE_LIMIT_LONG_WINDOW_SECONDS: int
     RATE_LIMIT_LONG_MAX_REQUESTS: int
 
+    VECTOR_STORE_PROVIDER: str
+    UPSTASH_REDIS_URL: str | None
+    UPSTASH_VECTOR_URL: str | None
+    UPSTASH_VECTOR_TOKEN: str | None
+
 
 settings = Settings(
     EMBEDDING_MODEL=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
@@ -100,4 +105,8 @@ settings = Settings(
     RATE_LIMIT_LONG_MAX_REQUESTS=_to_int(
         os.getenv("RATE_LIMIT_LONG_MAX_REQUESTS"), default=30
     ),
+    VECTOR_STORE_PROVIDER=os.getenv("VECTOR_STORE_PROVIDER", "redis_stack"),
+    UPSTASH_REDIS_URL=os.getenv("UPSTASH_REDIS_URL"),
+    UPSTASH_VECTOR_URL=os.getenv("UPSTASH_VECTOR_URL"),
+    UPSTASH_VECTOR_TOKEN=os.getenv("UPSTASH_VECTOR_TOKEN"),
 )

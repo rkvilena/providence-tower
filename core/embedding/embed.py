@@ -14,12 +14,12 @@ if __package__ is None or __package__ == "":
         sys.path.insert(0, str(project_root))
 
 from core.embedding.embedding_service import EmbeddingService
-from core.embedding.redis_store import RedisVectorStore
+from core.vector_store_factory import create_vector_store
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Embed chunked markdown files and store in Redis"
+        description="Embed chunked markdown files and store in vector store"
     )
     parser.add_argument(
         "--input-dir",
@@ -35,23 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch-size", type=int, default=256, help="Embedding batch size"
     )
-    parser.add_argument("--redis-host", default="127.0.0.1", help="Redis host")
-    parser.add_argument("--redis-port", type=int, default=6379, help="Redis port")
-    parser.add_argument("--redis-db", type=int, default=0, help="Redis DB index")
     parser.add_argument(
-        "--redis-password", default=None, help="Redis password if required"
-    )
-    parser.add_argument(
-        "--index-name", default="rag_chunks_idx", help="Redis search index name"
-    )
-    parser.add_argument(
-        "--key-prefix", default="rag:chunk:", help="Redis key prefix for chunk docs"
+        "--index-name", default="rag_chunks_idx", help="Vector index name"
     )
     parser.add_argument(
         "--write-batch-size",
         type=int,
         default=1000,
-        help="Redis pipeline write batch size",
+        help="Vector store write batch size",
     )
     parser.add_argument(
         "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -76,19 +67,9 @@ def main() -> None:
         device=args.device,
         batch_size=args.batch_size,
     )
-    store = RedisVectorStore(
-        host=args.redis_host,
-        port=args.redis_port,
-        db=args.redis_db,
-        password=args.redis_password,
+    store = create_vector_store(
         index_name=args.index_name,
-        key_prefix=args.key_prefix,
     )
-
-    if not store.ping():
-        raise RuntimeError(
-            f"Cannot connect to Redis at {args.redis_host}:{args.redis_port}"
-        )
 
     logger.info("Loading chunk documents from %s", input_dir)
     documents = embedding_service.load_documents_from_directory(input_dir)
@@ -151,7 +132,6 @@ def main() -> None:
                 "vectors_written": written,
                 "vector_dim": dim,
                 "index_name": args.index_name,
-                "redis": f"{args.redis_host}:{args.redis_port}/{args.redis_db}",
                 "elapsed_seconds": round(elapsed, 2),
             },
             indent=2,
