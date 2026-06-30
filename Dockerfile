@@ -60,7 +60,7 @@ RUN python download_models.py
 #    This is the fastest-changing layer.
 #    NOTE: download_models.py is re-copied here (from core/) — that's fine,
 #    it's a small utility script that can remain in the final image.
-COPY core/ .
+COPY core/ ./core/
 
 EXPOSE 8080
 
