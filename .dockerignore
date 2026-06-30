@@ -1,0 +1,37 @@
+# =============================================================================
+# Docker build context ignores
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.env
+.venv
+*.egg-info
+dist
+build
+
+# IDE
+.vscode
+.idea
+
+# Local data & secrets
+data/
+secret/
+blueprint/
+embed_chunk/
+
+# Local model cache — the production cache is built inside the image
+# via download_models.py, so there's no need to send a local copy.
+cached_models/
+
+# Documentation & auxiliary
+docs/
+README.md
+LICENSE
+format.sh
