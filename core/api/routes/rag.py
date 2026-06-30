@@ -55,7 +55,7 @@ def _build_chat_response(state: RagState) -> ChatResponse:
     },
     summary="Send a query through the full RAG pipeline",
 )
-async def chat(
+def chat(
     body: ChatRequest,
     svc: RagService = Depends(get_rag_service),
     _rate_limiter: None = Depends(get_redis_rate_limiter),
@@ -76,7 +76,7 @@ async def chat(
     responses={422: {"model": ErrorResponse}},
     summary="Clear conversation history for a session",
 )
-async def clear_session(
+def clear_session(
     body: ChatRequest,
     svc: RagService = Depends(get_rag_service),
 ) -> SessionClearResponse:

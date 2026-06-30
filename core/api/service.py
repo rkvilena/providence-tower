@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import warnings
 import logging
-from typing import Any
 
 from core.env import settings
 from core.rag.history import RedisHistoryStore, generate_session_id
@@ -29,7 +28,6 @@ class RagService:
         self._rag: RagGraph | None = None
         self._history_store: RedisHistoryStore | None = None
         self._vector_store: VectorStoreProtocol | None = None
-        self._warmed_up: bool = False
 
     # ---- lifecycle -----------------------------------------------------------
 
@@ -38,14 +36,12 @@ class RagService:
         self._vector_store = create_vector_store()
         self._init_history_store()
         self._init_rag()
-        self._warmup()
 
     def shutdown(self) -> None:
         """Called once when the application shuts down."""
         self._rag = None
         self._history_store = None
         self._vector_store = None
-        self._warmed_up = False
 
     # ---- public helpers ------------------------------------------------------
 
@@ -158,14 +154,3 @@ class RagService:
         if self._rag is None:
             self._init_rag()
         return self._rag
-
-    def _warmup(self) -> None:
-        if self._warmed_up:
-            return
-        rag = self._ensure_rag()
-        try:
-            rag.warmup()
-            LOGGER.info("RAG warmup complete.")
-        except Exception as exc:
-            LOGGER.warning("RAG warmup failed (non-fatal): %s", exc)
-        self._warmed_up = True

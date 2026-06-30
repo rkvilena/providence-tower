@@ -35,6 +35,9 @@ class UpstashVectorStore(VectorStoreProtocol):
         self._url = url.rstrip("/")
         self._token = token
         self.index_name = index_name
+        self._client = httpx.Client(
+            base_url=self._url, headers=self._headers(), timeout=30
+        )
 
     # ---- VectorStoreProtocol --------------------------------------------------
 
@@ -44,11 +47,7 @@ class UpstashVectorStore(VectorStoreProtocol):
         We issue a lightweight info request to confirm the endpoint is
         reachable.  Index creation is deferred to the first upsert.
         """
-        resp = httpx.get(
-            f"{self._url}/info",
-            headers=self._headers(),
-            timeout=10,
-        )
+        resp = self._client.get("/info", timeout=10)
         if resp.status_code == 200:
             LOGGER.info(
                 "Upstash index '%s' reachable (dim=%s)", self.index_name, vector_dim
@@ -80,12 +79,7 @@ class UpstashVectorStore(VectorStoreProtocol):
         if filter_str:
             payload["filter"] = filter_str
 
-        resp = httpx.post(
-            f"{self._url}/query",
-            headers=self._headers(),
-            json=payload,
-            timeout=30,
-        )
+        resp = self._client.post("/query", json=payload, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         return self._parse_upstash_results(data)
@@ -144,12 +138,7 @@ class UpstashVectorStore(VectorStoreProtocol):
                         },
                     }
                 )
-            resp = httpx.post(
-                f"{self._url}/upsert",
-                headers=self._headers(),
-                json=items,
-                timeout=60,
-            )
+            resp = self._client.post("/upsert", json=items, timeout=60)
             resp.raise_for_status()
             written += len(items)
             LOGGER.debug("Upserted %d vectors to Upstash", len(items))
