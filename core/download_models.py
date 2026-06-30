@@ -14,6 +14,7 @@ Usage (inside Dockerfile):
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -60,12 +61,16 @@ def main() -> None:
     # Download reranker (cross-encoder) model
     # ------------------------------------------------------------------
     LOGGER.info("Downloading reranker model '%s' ...", RERANKER_MODEL)
+
+    # CrossEncoder does NOT support a cache_folder kwarg — rely on
+    # HuggingFace environment variables instead so the weights land
+    # under CACHE_DIR.
+    os.environ["TRANSFORMERS_CACHE"] = str(CACHE_DIR)
+    os.environ["HF_HOME"] = str(CACHE_DIR)
+
     from sentence_transformers import CrossEncoder
 
-    CrossEncoder(
-        RERANKER_MODEL,
-        cache_folder=str(CACHE_DIR),
-    )
+    CrossEncoder(RERANKER_MODEL)
     LOGGER.info("Reranker model cached successfully.")
 
     LOGGER.info("All models downloaded and cached in %s", CACHE_DIR)
