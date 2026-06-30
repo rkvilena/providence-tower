@@ -105,7 +105,7 @@ settings = Settings(
     RATE_LIMIT_LONG_MAX_REQUESTS=_to_int(
         os.getenv("RATE_LIMIT_LONG_MAX_REQUESTS"), default=30
     ),
-    VECTOR_STORE_PROVIDER=os.getenv("VECTOR_STORE_PROVIDER", "redis_stack"),
+    VECTOR_STORE_PROVIDER=os.getenv("VECTOR_STORE_PROVIDER", "upstash"),
     UPSTASH_REDIS_URL=os.getenv("UPSTASH_REDIS_URL"),
     UPSTASH_VECTOR_URL=os.getenv("UPSTASH_VECTOR_URL"),
     UPSTASH_VECTOR_TOKEN=os.getenv("UPSTASH_VECTOR_TOKEN"),
