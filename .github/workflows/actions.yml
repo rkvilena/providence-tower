@@ -51,6 +51,65 @@ jobs:
         cache-to: type=gha,mode=max
     # ---------------------------------
 
+    - name: Write env vars file for Cloud Run
+      shell: bash
+      run: |
+        cat > /tmp/cloudrun_env.yaml << 'EOF'
+        # --- Required: must be set for the app to function ---
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        VECTOR_STORE_PROVIDER: ${{ secrets.VECTOR_STORE_PROVIDER }}
+        UPSTASH_REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
+        UPSTASH_VECTOR_URL: ${{ secrets.UPSTASH_VECTOR_URL }}
+        UPSTASH_VECTOR_TOKEN: ${{ secrets.UPSTASH_VECTOR_TOKEN }}
+        EOF
+
+        # --- Optional: only write if the secret exists (Python defaults handle the rest) ---
+        if [ -n "${{ secrets.OPENAI_BASE_URL }}" ]; then
+          echo "OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.EMBEDDING_MODEL }}" ]; then
+          echo "EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.PLANNER_AGENT }}" ]; then
+          echo "PLANNER_AGENT: ${{ secrets.PLANNER_AGENT }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.PLANNER_MODEL }}" ]; then
+          echo "PLANNER_MODEL: ${{ secrets.PLANNER_MODEL }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.PLANNER_PRESERVE_RICH_QUERY }}" ]; then
+          echo "PLANNER_PRESERVE_RICH_QUERY: ${{ secrets.PLANNER_PRESERVE_RICH_QUERY }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RERANK_ENABLED }}" ]; then
+          echo "RERANK_ENABLED: ${{ secrets.RERANK_ENABLED }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RERANK_MODEL }}" ]; then
+          echo "RERANK_MODEL: ${{ secrets.RERANK_MODEL }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RERANK_TOP_K }}" ]; then
+          echo "RERANK_TOP_K: ${{ secrets.RERANK_TOP_K }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RERANK_MIN_TOP_SCORE }}" ]; then
+          echo "RERANK_MIN_TOP_SCORE: ${{ secrets.RERANK_MIN_TOP_SCORE }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RAG_HISTORY_WINDOW }}" ]; then
+          echo "RAG_HISTORY_WINDOW: ${{ secrets.RAG_HISTORY_WINDOW }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RAG_SESSION_TTL_SECONDS }}" ]; then
+          echo "RAG_SESSION_TTL_SECONDS: ${{ secrets.RAG_SESSION_TTL_SECONDS }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RATE_LIMIT_SHORT_WINDOW_SECONDS }}" ]; then
+          echo "RATE_LIMIT_SHORT_WINDOW_SECONDS: ${{ secrets.RATE_LIMIT_SHORT_WINDOW_SECONDS }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RATE_LIMIT_SHORT_MAX_REQUESTS }}" ]; then
+          echo "RATE_LIMIT_SHORT_MAX_REQUESTS: ${{ secrets.RATE_LIMIT_SHORT_MAX_REQUESTS }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RATE_LIMIT_LONG_WINDOW_SECONDS }}" ]; then
+          echo "RATE_LIMIT_LONG_WINDOW_SECONDS: ${{ secrets.RATE_LIMIT_LONG_WINDOW_SECONDS }}" >> /tmp/cloudrun_env.yaml
+        fi
+        if [ -n "${{ secrets.RATE_LIMIT_LONG_MAX_REQUESTS }}" ]; then
+          echo "RATE_LIMIT_LONG_MAX_REQUESTS: ${{ secrets.RATE_LIMIT_LONG_MAX_REQUESTS }}" >> /tmp/cloudrun_env.yaml
+        fi
+
     - name: Deploy to Cloud Run
       run: |
         gcloud run deploy providence-tower \
@@ -61,4 +120,5 @@ jobs:
           --min-instances=0 \
           --max-instances=2 \
           --cpu=1 \
-          --memory=2Gi
+          --memory=2Gi \
+          --env-vars-file=/tmp/cloudrun_env.yaml
