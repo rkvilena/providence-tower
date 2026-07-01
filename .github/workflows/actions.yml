@@ -54,11 +54,11 @@ jobs:
     - name: Deploy to Cloud Run
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        VECTOR_STORE_PROVIDER: ${{ secrets.VECTOR_STORE_PROVIDER }}
+        VECTOR_STORE_PROVIDER: ${{ vars.VECTOR_STORE_PROVIDER }}
         UPSTASH_REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
         UPSTASH_VECTOR_URL: ${{ secrets.UPSTASH_VECTOR_URL }}
         UPSTASH_VECTOR_TOKEN: ${{ secrets.UPSTASH_VECTOR_TOKEN }}
-        RATE_LIMIT_SHORT_MAX_REQUESTS: ${{ secrets.RATE_LIMIT_SHORT_MAX_REQUESTS }}
+        RATE_LIMIT_SHORT_MAX_REQUESTS: ${{ vars.RATE_LIMIT_SHORT_MAX_REQUESTS }}
       run: |
         gcloud run deploy providence-tower \
           --image=gcr.io/${{ secrets.GCP_PROJECT_ID }}/providence-tower:${{ github.sha }} \
