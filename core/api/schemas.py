@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from core.rag.schema import RagState
 
 
 class ChatRequest(BaseModel):
@@ -86,3 +89,44 @@ class HealthResponse(BaseModel):
     planner_llm_enabled: bool = False
     reranker_enabled: bool = False
     message: str = ""
+
+
+def build_chat_response(state: RagState) -> ChatResponse:
+    """Convert a final ``RagState`` into the public ``ChatResponse`` schema.
+
+    Shared by the blocking ``/rag/chat`` endpoint and the SSE
+    ``final_answer`` event so both surfaces expose the identical payload.
+    """
+    think = state.thinker_state
+    plan = state.planner_state
+
+    return ChatResponse(
+        session_id=state.session_id,
+        response=(think.response or "").strip(),
+        sufficient=think.sufficient,
+        used_chunk_ids=list(think.used_chunk_ids),
+        debug_trace=list(state.debug_trace),
+        node_latencies_ms=dict(state.node_latencies_ms),
+        planner=PlannerResponse(
+            condensed_query=plan.condensed_query,
+            planned_queries=list(plan.planned_queries),
+            entities=list(plan.entities),
+            reasoning=list(plan.reasoning),
+            source=plan.source,
+        ),
+        chunk_count=len(state.fetcher_state.chunks),
+    )
+
+
+class RagStreamEvent(BaseModel):
+    """Internal event envelope used by the phase-progress SSE endpoint."""
+
+    event: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+    def encode(self) -> str:
+        """Encode this event using the Server-Sent Events wire format."""
+        return (
+            f"event: {self.event}\n"
+            f"data: {json.dumps(self.data, ensure_ascii=False)}\n\n"
+        )

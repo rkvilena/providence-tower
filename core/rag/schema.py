@@ -53,10 +53,38 @@ class ChunkHit(BaseModel):
 
 
 # Fetcher schema
+class QueryFetchTiming(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = ""
+    embedding_ms: float = 0.0
+    vector_search_ms: float = 0.0
+    hit_conversion_ms: float = 0.0
+    rerank_ms: float = 0.0
+    merge_ms: float = 0.0
+    result_count: int = 0
+    rerank_passed: bool | None = None
+
+
+class FetchTimingTotals(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    embedding_ms: float = 0.0
+    vector_search_ms: float = 0.0
+    hit_conversion_ms: float = 0.0
+    rerank_ms: float = 0.0
+    merge_ms: float = 0.0
+    final_sort_ms: float = 0.0
+    query_count: int = 0
+    unique_chunks: int = 0
+
+
 class FetcherState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     chunks: list[ChunkHit] = Field(default_factory=list)
+    query_timings: list[QueryFetchTiming] = Field(default_factory=list)
+    totals: FetchTimingTotals | None = None
 
 
 # Thinker schema

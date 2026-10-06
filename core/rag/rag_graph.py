@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Callable
+from typing import Callable, Iterator
 
 from langgraph.graph import END, START, StateGraph
 
@@ -24,6 +24,16 @@ class RagGraph:
     def run(self, state: RagState) -> RagState:
         result = self.graph.invoke({"state": state})
         return result["state"]
+
+    def stream(self, state: RagState) -> Iterator[tuple[str, RagState]]:
+        """Yield the current state after each completed graph node."""
+        current = state
+        for update in self.graph.stream({"state": state}, stream_mode="updates"):
+            for node_name, node_update in update.items():
+                candidate = node_update.get("state") if isinstance(node_update, dict) else None
+                if candidate is not None:
+                    current = candidate
+                yield node_name, current
 
     def _build(self):
         graph = StateGraph(GraphState)

@@ -8,3 +8,4 @@ cached_models/
 data/
 embed_chunk/
 secret/
+test/results/
