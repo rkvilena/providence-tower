@@ -77,6 +77,8 @@ class FetchTimingTotals(BaseModel):
     final_sort_ms: float = 0.0
     query_count: int = 0
     unique_chunks: int = 0
+    rerank_pair_count: int = 0
+    rerank_model_calls: int = 0
 
 
 class FetcherState(BaseModel):

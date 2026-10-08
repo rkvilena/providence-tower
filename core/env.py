@@ -62,6 +62,7 @@ class Settings(BaseModel):
     RERANK_MODEL: str
     RERANK_TOP_K: int
     RERANK_MIN_TOP_SCORE: float
+    RERANK_BATCH_SIZE: int
 
     RATE_LIMIT_SHORT_WINDOW_SECONDS: int
     RATE_LIMIT_SHORT_MAX_REQUESTS: int
@@ -93,6 +94,7 @@ settings = Settings(
     RERANK_MODEL=os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
     RERANK_TOP_K=_to_int(os.getenv("RERANK_TOP_K"), default=20),
     RERANK_MIN_TOP_SCORE=_to_float(os.getenv("RERANK_MIN_TOP_SCORE"), default=0.7),
+    RERANK_BATCH_SIZE=_to_int(os.getenv("RERANK_BATCH_SIZE"), default=32),
     RATE_LIMIT_SHORT_WINDOW_SECONDS=_to_int(
         os.getenv("RATE_LIMIT_SHORT_WINDOW_SECONDS"), default=60
     ),
