@@ -37,7 +37,7 @@ class PlannerState(BaseModel):
     planned_queries: list[str] = Field(default_factory=list)
     entities: list[str] = Field(default_factory=list)
     reasoning: list[str] = Field(default_factory=list)
-    source: Literal["llm", "fallback_python"] = "fallback_python"
+    source: Literal["llm", "manual"] = "manual"
 
 
 class ChunkHit(BaseModel):

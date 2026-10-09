@@ -82,7 +82,7 @@ def _advance(state: RagState, node: str) -> RagState:
         state.planner_state = PlannerState(
             condensed_query="adol abilities",
             planned_queries=["adol abilities"],
-            source="fallback_python",
+            source="manual",
         )
     elif node == "fetcher":
         state.fetcher_state = FetcherState()  # empty chunks keeps payload small
@@ -148,7 +148,7 @@ def test_stream_rag_event_order_and_payloads() -> None:
 
     planner_completed = dict(events)["planner_completed"]
     assert planner_completed["planned_query_count"] == 1
-    assert planner_completed["source"] == "fallback_python"
+    assert planner_completed["source"] == "manual"
     assert planner_completed["latency_ms"] == 1.23
 
     final = dict(events)["final_answer"]
@@ -156,7 +156,7 @@ def test_stream_rag_event_order_and_payloads() -> None:
     assert final["session_id"] == "s1"
     assert final["response"] == "Adol is the protagonist."
     assert final["chunk_count"] == 0
-    assert final["planner"]["source"] == "fallback_python"
+    assert final["planner"]["source"] == "manual"
 
 
 def test_stream_rag_error_event() -> None:
