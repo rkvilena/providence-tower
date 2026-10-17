@@ -2,6 +2,8 @@
 .venv
 .chainlit
 .empryo
+.clinerules
+.clineignore
 __pycache__
 
 blueprint/
