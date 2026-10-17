@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-
 import logging
 import time
 from typing import Iterable, Iterator
@@ -67,38 +66,11 @@ class ThinkerNode:
         timing = ThinkerTiming()
         start = time.perf_counter()
 
-        # Phase 4: deterministic low-confidence fast path.
         skip_reason = self._skip_reason(state)
         if skip_reason:
-            timing.skipped = True
-            timing.skip_reason = skip_reason
-            thinker_state = self._fallback_thinker(state)
-            state.add_trace(f"Thinker skipped LLM: {skip_reason}.")
+            thinker_state = self._run_skipped(state, timing, skip_reason)
         else:
-            # Phase 7: response cache lookup.
-            cache_key = self._cache_key(state)
-            cached = self._cache_get(cache_key)
-            if cached is not None:
-                thinker_state = cached
-                timing.cache_hit = True
-                state.add_trace("Thinker cache hit.")
-            else:
-                # Phase 5: difficulty-based model routing.
-                use_fast = self._use_fast_model(state)
-                timing.routed_model = (
-                    settings.THINKER_FAST_MODEL if use_fast else MODEL_DICT["THINKER"]
-                )
-                if use_fast and self.fast_structured_llm:
-                    thinker_state = self._run_llm_thinker(
-                        state, timing, structured_llm=self.fast_structured_llm
-                    )
-                elif self.structured_llm:
-                    thinker_state = self._run_llm_thinker(
-                        state, timing, on_delta=on_delta
-                    )
-                else:
-                    thinker_state = self._fallback_thinker(state)
-                self._cache_put(cache_key, thinker_state)
+            thinker_state = self._run_cached_or_llm(state, timing, on_delta)
 
         thinker_state = self._postprocess_thinker_state(
             thinker_state, state.fetcher_state.chunks
@@ -108,10 +80,10 @@ class ThinkerNode:
         timing.used_chunk_count = len(thinker_state.used_chunk_ids)
         timing.output_chars = len(thinker_state.response)
         timing.estimated_output_tokens = self._estimate_tokens(thinker_state.response)
-        scores = [c.score for c in state.fetcher_state.chunks]
-        if scores:
-            timing.highest_chunk_score = max(scores)
-            timing.lowest_chunk_score = min(scores)
+        chunk_scores = [c.score for c in state.fetcher_state.chunks]
+        if chunk_scores:
+            timing.highest_chunk_score = max(chunk_scores)
+            timing.lowest_chunk_score = min(chunk_scores)
 
         state.thinker_state = thinker_state
         state.thinker_timing = timing
@@ -127,6 +99,50 @@ class ThinkerNode:
         )
         return state
 
+    def _run_skipped(
+        self, state: RagState, timing: ThinkerTiming, skip_reason: str
+    ) -> ThinkerState:
+        """Deterministic fast path for low-confidence retrieval (no LLM call)."""
+        timing.skipped = True
+        timing.skip_reason = skip_reason
+        state.add_trace(f"Thinker skipped LLM: {skip_reason}.")
+        return self._fallback_thinker(state)
+
+    def _run_cached_or_llm(
+        self, state: RagState, timing: ThinkerTiming, on_delta
+    ) -> ThinkerState:
+        """Serve from the response cache when possible, else via model routing."""
+        cache_key = self._cache_key(state)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            timing.cache_hit = True
+            state.add_trace("Thinker cache hit.")
+            return cached
+
+        thinker_state = self._run_routed_llm(state, timing, on_delta)
+        self._cache_put(cache_key, thinker_state)
+        return thinker_state
+
+    def _run_routed_llm(
+        self, state: RagState, timing: ThinkerTiming, on_delta
+    ) -> ThinkerState:
+        """Route to the fast or full model by query difficulty.
+
+        Only the full model path streams: the fast model is invoked without
+        ``on_delta`` because its answers are short and not streamed.
+        """
+        use_fast = self._use_fast_model(state)
+        timing.routed_model = (
+            settings.THINKER_FAST_MODEL if use_fast else MODEL_DICT["THINKER"]
+        )
+        if use_fast and self.fast_structured_llm:
+            return self._run_llm_thinker(
+                state, timing, structured_llm=self.fast_structured_llm
+            )
+        if self.structured_llm:
+            return self._run_llm_thinker(state, timing, on_delta=on_delta)
+        return self._fallback_thinker(state)
+
     @staticmethod
     def _estimate_tokens(text: str) -> int:
         """Rough token estimate (~4 chars per token for English text)."""
@@ -141,7 +157,8 @@ class ThinkerNode:
         on_delta=None,
     ) -> ThinkerState:
         structured_llm = structured_llm or self.structured_llm
-        assert structured_llm is not None
+        if structured_llm is None:
+            raise RuntimeError("No structured Thinker LLM is available.")
         chunks_payload = self._build_chunks_payload(state.fetcher_state.chunks, timing)
         user_payload = {
             "user_query": state.user_query,
@@ -182,7 +199,8 @@ class ThinkerNode:
         parsed and validated into ``ThinkerState`` only after the stream ends,
         so final validation always happens before the completed answer.
         """
-        assert self.llm is not None
+        if self.llm is None:
+            raise RuntimeError("Streaming requires the full Thinker LLM.")
         messages = [
             SystemMessage(content=THINKER_PROMPT + THINKER_JSON_INSTRUCTIONS),
             HumanMessage(content=user_prompt),
@@ -259,53 +277,60 @@ class ThinkerNode:
     ) -> list[dict]:
         """Build the Thinker context payload under an adaptive budget.
 
-        Policy (fetcher order is assumed to be ranked best-first):
-        - Cap total chunks at THINKER_MAX_CHUNKS.
-        - Top THINKER_FULL_TEXT_CHUNKS chunks keep full text.
-        - Lower-ranked chunks are truncated to THINKER_MAX_CHUNK_CHARS.
-        - A global char budget (THINKER_CONTEXT_BUDGET) is enforced by
-          progressively truncating from the lowest-ranked chunk upward.
+        Fetcher order is assumed to be ranked best-first. Top
+        ``THINKER_FULL_TEXT_CHUNKS`` keep full text; lower-ranked chunks are
+        truncated to ``THINKER_MAX_CHUNK_CHARS``, then from lowest-ranked
+        upward until the ``THINKER_CONTEXT_BUDGET`` total is met.
         """
-        max_chunks = settings.THINKER_MAX_CHUNKS
+        # Guards against a misconfigured negative full-text setting.
         full_text_count = max(0, settings.THINKER_FULL_TEXT_CHUNKS)
-        max_chunk_chars = settings.THINKER_MAX_CHUNK_CHARS
-        budget = settings.THINKER_CONTEXT_BUDGET
-
-        ranked = list(chunks)[:max_chunks]
-        texts = [c.text for c in ranked]
+        ranked_chunks = list(chunks)[: settings.THINKER_MAX_CHUNKS]
+        chunk_texts = [c.text for c in ranked_chunks]
 
         # Per-chunk truncation: full text for top-ranked, shortened for the rest.
-        for i in range(len(texts)):
-            if i >= full_text_count and len(texts[i]) > max_chunk_chars:
-                texts[i] = texts[i][:max_chunk_chars].rstrip() + "…"
+        for i in range(len(chunk_texts)):
+            if (
+                i >= full_text_count
+                and len(chunk_texts[i]) > settings.THINKER_MAX_CHUNK_CHARS
+            ):
+                chunk_texts[i] = (
+                    chunk_texts[i][: settings.THINKER_MAX_CHUNK_CHARS].rstrip() + "…"
+                )
 
         # Global budget: truncate from the lowest-ranked chunk upward.
-        total = sum(len(t) for t in texts)
-        i = len(texts) - 1
-        while total > budget and i >= full_text_count:
-            excess = total - budget
-            cut = min(excess, len(texts[i]) - 1)
+        total_chars = sum(len(text) for text in chunk_texts)
+        lowest_ranked = len(chunk_texts) - 1
+        while (
+            total_chars > settings.THINKER_CONTEXT_BUDGET
+            and lowest_ranked >= full_text_count
+        ):
+            excess = total_chars - settings.THINKER_CONTEXT_BUDGET
+            cut = min(excess, len(chunk_texts[lowest_ranked]) - 1)
             if cut > 0:
-                texts[i] = texts[i][:cut].rstrip() + "…"
-                total -= cut
-            i -= 1
+                chunk_texts[lowest_ranked] = (
+                    chunk_texts[lowest_ranked][:cut].rstrip() + "…"
+                )
+                total_chars -= cut
+            lowest_ranked -= 1
 
-        timing.input_chunk_count = len(ranked)
-        timing.dropped_chunk_count = len(chunks) - len(ranked)
+        timing.input_chunk_count = len(ranked_chunks)
+        timing.dropped_chunk_count = len(chunks) - len(ranked_chunks)
         timing.truncated_chunk_count = sum(
-            1 for orig, t in zip(ranked, texts) if len(t) < len(orig.text)
+            1
+            for chunk, text in zip(ranked_chunks, chunk_texts)
+            if len(text) < len(chunk.text)
         )
         return [
             {
-                "chunk_id": c.chunk_id,
-                "page_id": c.page_id,
-                "page_title": c.page_title,
-                "section": c.section,
-                "subsection": c.subsection,
-                "score": c.score,
-                "text": t,
+                "chunk_id": chunk.chunk_id,
+                "page_id": chunk.page_id,
+                "page_title": chunk.page_title,
+                "section": chunk.section,
+                "subsection": chunk.subsection,
+                "score": chunk.score,
+                "text": text,
             }
-            for c, t in zip(ranked, texts)
+            for chunk, text in zip(ranked_chunks, chunk_texts)
         ]
 
     def _skip_reason(self, state: RagState) -> str:
@@ -433,8 +458,8 @@ class ThinkerNode:
         if not used_chunk_ids:
             return response
 
-        existing = response
-        if "isu.fandom.com/wiki/?curid=" in existing:
+        # References already present means a cache hit or a retried answer.
+        if "isu.fandom.com/wiki/?curid=" in response:
             return response
 
         chunk_by_id = {c.chunk_id: c for c in chunks}

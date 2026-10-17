@@ -172,13 +172,15 @@ class LlmPlanner:
 
     def plan(self, state: RagState) -> PlannerState:
         try:
-            return self._invoke_llm(state)
+            parsed = self._invoke_llm(state)
+            return self._build_planner_state(parsed, state)
         except Exception as exc:
             LOGGER.warning("Planner LLM failed, using manual planner: %s", exc)
             state.add_trace(f"Planner LLM failed: {exc}. Using manual planner.")
             return self.recovery.plan(state)
 
     def _invoke_llm(self, state: RagState) -> PlannerState:
+        """Call the planner LLM and return its raw structured output."""
         history_hint = [
             {"q": h.q, "a": h.a} for h in state.history[-settings.RAG_HISTORY_WINDOW :]
         ]
@@ -186,13 +188,17 @@ class LlmPlanner:
             "user_query": state.user_query,
             "history": history_hint,
         }
-        parsed = self.structured_llm.invoke(
+        return self.structured_llm.invoke(
             [
                 SystemMessage(content=PLANNER_PROMPT),
                 HumanMessage(content=json.dumps(user_payload, ensure_ascii=False)),
             ]
         )
 
+    def _build_planner_state(
+        self, parsed: PlannerState, state: RagState
+    ) -> PlannerState:
+        """Normalize raw LLM output into a valid PlannerState."""
         condensed_query = str(getattr(parsed, "condensed_query", "")).strip()
         if not condensed_query:
             condensed_query = state.user_query.strip()
@@ -206,13 +212,7 @@ class LlmPlanner:
         if not planned:
             raise ValueError("Planner LLM returned empty planned_queries.")
 
-        entities: list[str] = []
-        for item in list(getattr(parsed, "entities", []) or []):
-            text = str(item).strip()
-            if text and text.lower() not in {e.lower() for e in entities}:
-                entities.append(text)
-        entities = entities[:MAX_ENTITY_COUNT]
-
+        entities = self._dedupe_entities(getattr(parsed, "entities", None) or [])
         reasoning = parsed.reasoning or [
             "Generated semantic search query variants from user intent."
         ]
@@ -223,6 +223,19 @@ class LlmPlanner:
             reasoning=[str(item) for item in reasoning][:5],
             source="llm",
         )
+
+    def _dedupe_entities(self, entities: list) -> list[str]:
+        """Strip, dedupe case-insensitively, and cap at MAX_ENTITY_COUNT."""
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in entities:
+            text = str(item).strip()
+            key = text.lower()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(text)
+        return cleaned[:MAX_ENTITY_COUNT]
 
 
 class PlannerNode:
@@ -250,18 +263,20 @@ class PlannerNode:
     def _plan_with_selected_planner(self, state: RagState) -> PlannerState:
         mode = settings.PLANNER_MODE
 
-        if mode == "manual":
-            return self.manual.plan(state)
+        if mode == "both":
+            return self._plan_by_complexity(state)
 
         if mode == "llm":
             if self.llm is not None:
                 return self.llm.plan(state)
             state.add_trace("Planner LLM unavailable. Using manual planner.")
-            return self.manual.plan(state)
 
-        # mode == "both"
+        return self.manual.plan(state)
+
+    def _plan_by_complexity(self, state: RagState) -> PlannerState:
+        """Route simple queries to the manual planner, complex ones to the LLM."""
         complexity = classify_complexity(state.user_query, len(state.history))
-        state.add_trace(f"Planner route: mode={mode} reason={complexity.reason}")
+        state.add_trace(f"Planner route: mode=both reason={complexity.reason}")
         if complexity.use_llm and self.llm is not None:
             return self.llm.plan(state)
         return self.manual.plan(state)

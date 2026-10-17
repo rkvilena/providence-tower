@@ -43,6 +43,8 @@ EXPECTED_EVENT_ORDER = [
     "retrieval_started",
     "retrieval_completed",
     "generation_started",
+    # One answer_delta per streamed fragment (here: two).
+    "answer_delta",
     "answer_delta",
     "generation_completed",
     "context_started",

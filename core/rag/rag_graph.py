@@ -50,18 +50,20 @@ class RagGraph:
 
     def _build(self):
         graph = StateGraph(GraphState)
-        graph.add_node(
-            "planner", lambda gs: self._timed_node(gs, self.planner, "planner")
+        nodes = (
+            ("planner", self.planner),
+            ("fetcher", self.fetcher),
+            ("thinker", self.thinker),
+            ("context", self.context),
         )
-        graph.add_node(
-            "fetcher", lambda gs: self._timed_node(gs, self.fetcher, "fetcher")
-        )
-        graph.add_node(
-            "thinker", lambda gs: self._timed_node(gs, self.thinker, "thinker")
-        )
-        graph.add_node(
-            "context", lambda gs: self._timed_node(gs, self.context, "context")
-        )
+        for name, node in nodes:
+            graph.add_node(
+                name,
+                # Defaults bind the loop variables at definition time.
+                lambda graph_state, node=node, name=name: self._timed_node(
+                    graph_state, node, name
+                ),
+            )
 
         graph.add_edge(START, "planner")
         graph.add_edge("planner", "fetcher")
