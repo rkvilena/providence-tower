@@ -1,4 +1,5 @@
 """Benchmark schemas, dataset helpers, and aggregation for the RAG test suite."""
+
 from __future__ import annotations
 
 import hashlib
@@ -54,12 +55,12 @@ class BenchmarkResult:
     quality: QualityMetrics = field(default_factory=QualityMetrics)
     node_latencies_ms: dict[str, float] = field(default_factory=dict)
     fetcher_timing: dict[str, Any] | None = None
+    thinker_timing: dict[str, Any] | None = None
     token_usage: TokenUsage = field(default_factory=TokenUsage)
     created_at: str = field(default_factory=now_utc_iso)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
 
 
 @dataclass
@@ -193,7 +194,9 @@ def summarize(
         present = [v for v in vals if v is not None]
         return sum(present) / len(present) if present else None
 
-    token_totals = [r.token_usage.total_tokens for r in ok if r.token_usage.total_tokens is not None]
+    token_totals = [
+        r.token_usage.total_tokens for r in ok if r.token_usage.total_tokens is not None
+    ]
 
     return BenchmarkSummary(
         run_id=run_id,
@@ -220,17 +223,22 @@ def summarize(
             mean_precision=mean([r.retrieval.precision for r in ok]),
             mean_recall=mean([r.retrieval.recall for r in ok]),
             hit_rate=sum(1 for r in ok if r.retrieval.hit) / len(ok) if ok else 0.0,
-            full_recall_rate=sum(1 for r in ok if r.retrieval.full_recall) / len(ok) if ok else 0.0,
+            full_recall_rate=sum(1 for r in ok if r.retrieval.full_recall) / len(ok)
+            if ok
+            else 0.0,
         ),
         quality=QualitySummary(
             mean_answer_relevancy=mean_opt([r.quality.answer_relevancy for r in ok]),
             mean_faithfulness=mean_opt([r.quality.faithfulness for r in ok]),
-            mean_semantic_similarity=mean_opt([r.quality.semantic_similarity for r in ok]),
+            mean_semantic_similarity=mean_opt(
+                [r.quality.semantic_similarity for r in ok]
+            ),
         ),
         tokens=TokensSummary(
             available=bool(token_totals),
-            mean_total_tokens=sum(token_totals) / len(token_totals) if token_totals else None,
+            mean_total_tokens=sum(token_totals) / len(token_totals)
+            if token_totals
+            else None,
             total_tokens=sum(token_totals),
         ),
     )
-

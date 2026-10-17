@@ -99,6 +99,20 @@ class ThinkerState(BaseModel):
     reasoning: list[str] = Field(default_factory=list)
 
 
+class ThinkerTiming(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    latency_ms: float = 0.0
+    input_chunk_count: int = 0
+    input_chars: int = 0
+    estimated_input_tokens: int = 0
+    output_chars: int = 0
+    estimated_output_tokens: int = 0
+    used_chunk_count: int = 0
+    highest_chunk_score: float | None = None
+    lowest_chunk_score: float | None = None
+
+
 # Global schema
 class RagState(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
@@ -111,6 +125,7 @@ class RagState(BaseModel):
     planner_state: PlannerState = Field(default_factory=PlannerState)
     fetcher_state: FetcherState = Field(default_factory=FetcherState)
     thinker_state: ThinkerState = Field(default_factory=ThinkerState)
+    thinker_timing: ThinkerTiming = Field(default_factory=ThinkerTiming)
     debug_trace: list[str] = Field(default_factory=list)
     node_latencies_ms: dict[str, float] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_utc_iso)

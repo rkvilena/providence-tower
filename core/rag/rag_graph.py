@@ -30,7 +30,9 @@ class RagGraph:
         current = state
         for update in self.graph.stream({"state": state}, stream_mode="updates"):
             for node_name, node_update in update.items():
-                candidate = node_update.get("state") if isinstance(node_update, dict) else None
+                candidate = (
+                    node_update.get("state") if isinstance(node_update, dict) else None
+                )
                 if candidate is not None:
                     current = candidate
                 yield node_name, current

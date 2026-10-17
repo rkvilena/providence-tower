@@ -94,7 +94,9 @@ class FetcherNode:
             rerank_pairs = sum(len(hits) for _, hits in hits_by_query)
 
             merge_start = time.perf_counter()
-            for (query, query_hits), rerank_result in zip(hits_by_query, rerank_results):
+            for (query, query_hits), rerank_result in zip(
+                hits_by_query, rerank_results
+            ):
                 state.add_trace(
                     f"Reranker top_score={rerank_result.top_score:.4f} threshold={settings.RERANK_MIN_TOP_SCORE:.2f} "
                     f"passed={rerank_result.passed_threshold}"

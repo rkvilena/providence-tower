@@ -44,15 +44,14 @@ class CrossEncoderReranker:
 
         for index, (_, hits) in enumerate(query_hits):
             if not hits:
-                results[index] = RerankResult(hits=[], top_score=0.0, passed_threshold=False)
+                results[index] = RerankResult(
+                    hits=[], top_score=0.0, passed_threshold=False
+                )
                 continue
             candidates.extend((index, hit) for hit in hits)
 
         if candidates:
-            pairs = [
-                (query_hits[index][0], hit.text)
-                for index, hit in candidates
-            ]
+            pairs = [(query_hits[index][0], hit.text) for index, hit in candidates]
             scores = self.model.predict(
                 pairs,
                 batch_size=self.batch_size,

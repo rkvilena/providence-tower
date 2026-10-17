@@ -36,13 +36,21 @@ COMPARISON_MARKERS = {
     " vs ",
     "better than",
 }
-AMBIGUOUS_REFERENCES = {"he", "she", "they", "it", "this", "that", "them", "those", "these"}
+AMBIGUOUS_REFERENCES = {
+    "he",
+    "she",
+    "they",
+    "it",
+    "this",
+    "that",
+    "them",
+    "those",
+    "these",
+}
 FOLLOW_UP_MARKERS = ("what about", "the other", "that one", "other one", "again")
 MULTI_PART_SPLIT = re.compile(r"\s+and\s+", flags=re.IGNORECASE)
 
-ENTITY_PATTERN = re.compile(
-    r"\b([A-Z][\w'&-]*(?:\s+(?:[A-Z][\w'&-]*|[IVX]+))*)\b"
-)
+ENTITY_PATTERN = re.compile(r"\b([A-Z][\w'&-]*(?:\s+(?:[A-Z][\w'&-]*|[IVX]+))*)\b")
 
 MAX_ENTITY_COUNT = 12
 
@@ -76,7 +84,9 @@ def classify_complexity(query: str, history_count: int) -> QueryComplexity:
             return QueryComplexity(use_llm=True, reason="follow_up_with_history")
         words = set(re.findall(r"[a-z]+", text))
         if words & AMBIGUOUS_REFERENCES:
-            return QueryComplexity(use_llm=True, reason="ambiguous_reference_with_history")
+            return QueryComplexity(
+                use_llm=True, reason="ambiguous_reference_with_history"
+            )
 
     if len(query.split()) > 30:
         return QueryComplexity(use_llm=True, reason="very_long_query")

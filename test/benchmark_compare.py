@@ -3,6 +3,7 @@
 Usage:
     python -m test.benchmark_compare --baseline test/results/baseline --candidate test/results/improved
 """
+
 from __future__ import annotations
 
 import argparse
@@ -65,7 +66,9 @@ def compare(baseline: dict, candidate: dict) -> None:
         a = _get(baseline, dotted)
         b = _get(candidate, dotted)
         if a in (None, 0) or b is None:
-            print(f"{label:<26} {_fmt(a):>12} {_fmt(b):>12} {'—':>12}  (not comparable)")
+            print(
+                f"{label:<26} {_fmt(a):>12} {_fmt(b):>12} {'—':>12}  (not comparable)"
+            )
             continue
         diff = b - a
         pct = diff / a * 100

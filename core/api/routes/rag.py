@@ -63,6 +63,7 @@ def chat_stream(
     the same payload as ``/rag/chat``.  Unrecoverable failures are reported
     as a ``pipeline_error`` event instead of an HTTP error status.
     """
+
     def events():
         for event in svc.stream_rag(query=body.query, session_id=body.session_id):
             yield event.encode()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import logging
+import time
 from typing import Iterable
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -10,7 +11,7 @@ from langchain_openai import ChatOpenAI
 
 from core.env import settings
 from core.rag.prompt import MODEL_DICT, THINKER_PROMPT
-from core.rag.schema import ChunkHit, RagState, ThinkerState
+from core.rag.schema import ChunkHit, RagState, ThinkerState, ThinkerTiming
 
 
 LOGGER = logging.getLogger(__name__)
@@ -30,8 +31,10 @@ class ThinkerNode:
             self.structured_llm = self.llm.with_structured_output(ThinkerState)
 
     def run(self, state: RagState) -> RagState:
+        timing = ThinkerTiming()
+        start = time.perf_counter()
         if self.structured_llm:
-            thinker_state = self._run_llm_thinker(state)
+            thinker_state = self._run_llm_thinker(state, timing)
         else:
             thinker_state = self._fallback_thinker(state)
 
@@ -39,14 +42,35 @@ class ThinkerNode:
             thinker_state, state.fetcher_state.chunks
         )
 
+        timing.latency_ms = round((time.perf_counter() - start) * 1000, 2)
+        timing.used_chunk_count = len(thinker_state.used_chunk_ids)
+        timing.output_chars = len(thinker_state.response)
+        timing.estimated_output_tokens = self._estimate_tokens(thinker_state.response)
+        scores = [c.score for c in state.fetcher_state.chunks]
+        if scores:
+            timing.highest_chunk_score = max(scores)
+            timing.lowest_chunk_score = min(scores)
+
         state.thinker_state = thinker_state
+        state.thinker_timing = timing
         state.add_trace(
             f"Thinker node completed: sufficient={thinker_state.sufficient}, "
-            f"used_chunks={len(thinker_state.used_chunk_ids)}"
+            f"used_chunks={len(thinker_state.used_chunk_ids)}, "
+            f"latency_ms={timing.latency_ms}, "
+            f"input_chunks={timing.input_chunk_count}, "
+            f"input_chars={timing.input_chars}, "
+            f"est_input_tokens={timing.estimated_input_tokens}, "
+            f"output_chars={timing.output_chars}, "
+            f"est_output_tokens={timing.estimated_output_tokens}"
         )
         return state
 
-    def _run_llm_thinker(self, state: RagState) -> ThinkerState:
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Rough token estimate (~4 chars per token for English text)."""
+        return max(1, len(text) // 4) if text else 0
+
+    def _run_llm_thinker(self, state: RagState, timing: ThinkerTiming) -> ThinkerState:
         assert self.structured_llm is not None
         chunks_payload = [
             {
@@ -64,11 +88,17 @@ class ThinkerNode:
             "user_query": state.user_query,
             "chunks": chunks_payload,
         }
+        user_prompt = self._build_user_thinker_prompt(user_payload)
+        timing.input_chunk_count = len(chunks_payload)
+        timing.input_chars = len(THINKER_PROMPT) + len(user_prompt)
+        timing.estimated_input_tokens = self._estimate_tokens(
+            THINKER_PROMPT
+        ) + self._estimate_tokens(user_prompt)
         try:
             parsed = self.structured_llm.invoke(
                 [
                     SystemMessage(content=THINKER_PROMPT),
-                    HumanMessage(content=self._build_user_thinker_prompt(user_payload)),
+                    HumanMessage(content=user_prompt),
                 ]
             )
             return parsed

@@ -126,7 +126,11 @@ class RagService:
         self, query: str, session_id: str | None = None
     ) -> Iterator[RagStreamEvent]:
         """Run the pipeline and yield phase-progress events."""
-        sid = str(session_id).strip() if session_id and str(session_id).strip() else generate_session_id()
+        sid = (
+            str(session_id).strip()
+            if session_id and str(session_id).strip()
+            else generate_session_id()
+        )
         state = RagState(session_id=sid, user_query=query)
         yield RagStreamEvent(
             event="pipeline_started",
@@ -201,12 +205,18 @@ class RagService:
                 if question_text and response_text:
                     try:
                         self._history_store.append_turn(
-                            state.session_id, question=question_text, answer=response_text,
+                            state.session_id,
+                            question=question_text,
+                            answer=response_text,
                             history_window=settings.RAG_HISTORY_WINDOW,
                             ttl_seconds=settings.RAG_SESSION_TTL_SECONDS,
                         )
-                        state.history = self._history_store.load_history(state.session_id)
-                        state.add_trace(f"Persisted session history turns={len(state.history)}.")
+                        state.history = self._history_store.load_history(
+                            state.session_id
+                        )
+                        state.add_trace(
+                            f"Persisted session history turns={len(state.history)}."
+                        )
                     except Exception as exc:
                         LOGGER.warning("Failed to persist session history: %s", exc)
                         state.add_trace(f"Failed to persist session history: {exc}")
@@ -223,7 +233,11 @@ class RagService:
             LOGGER.exception("Streaming RAG pipeline failed")
             yield RagStreamEvent(
                 event="pipeline_error",
-                data={"session_id": sid, "error_type": type(exc).__name__, "detail": str(exc)},
+                data={
+                    "session_id": sid,
+                    "error_type": type(exc).__name__,
+                    "detail": str(exc),
+                },
             )
 
     def clear_session(self, session_id: str) -> bool:

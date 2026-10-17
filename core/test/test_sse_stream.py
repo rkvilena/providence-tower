@@ -50,7 +50,12 @@ EXPECTED_EVENT_ORDER = [
     "pipeline_completed",
 ]
 
-PHASE_BY_NODE = {"planner": "planner", "fetcher": "retrieval", "thinker": "generation", "context": "context"}
+PHASE_BY_NODE = {
+    "planner": "planner",
+    "fetcher": "retrieval",
+    "thinker": "generation",
+    "context": "context",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -68,9 +73,9 @@ def _parse_sse_stream(raw: str) -> list[tuple[str, dict]]:
         data: dict = {}
         for line in frame.split("\n"):
             if line.startswith("event: "):
-                name = line[len("event: "):]
+                name = line[len("event: ") :]
             elif line.startswith("data: "):
-                data = json.loads(line[len("data: "):])
+                data = json.loads(line[len("data: ") :])
         assert name is not None, f"SSE frame missing event name: {frame!r}"
         events.append((name, data))
     return events

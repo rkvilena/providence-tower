@@ -34,7 +34,9 @@ def make_hit(chunk_id: str, text: str, score: float = 0.9) -> ChunkHit:
     )
 
 
-def make_reranker(min_top_score: float = 0.7, batch_size: int = 32) -> CrossEncoderReranker:
+def make_reranker(
+    min_top_score: float = 0.7, batch_size: int = 32
+) -> CrossEncoderReranker:
     reranker = CrossEncoderReranker.__new__(CrossEncoderReranker)
     reranker.model = FakeModel()
     reranker.min_top_score = min_top_score

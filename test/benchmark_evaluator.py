@@ -7,6 +7,7 @@ quality-results.jsonl. No LLM calls — fast, cheap, reproducible.
 Usage:
     python -m test.benchmark_evaluator --run-dir test/results/baseline
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,13 +47,17 @@ def evaluate_answer(row: dict) -> dict:
     missing_terms = [t for t in truth_tokens if t not in answer_l]
     total_required = len(numbers_in_truth) + len(truth_tokens)
     found = total_required - len(missing_numbers) - len(missing_terms)
-    out["required_values_found"] = round(found / total_required, 4) if total_required else None
+    out["required_values_found"] = (
+        round(found / total_required, 4) if total_required else None
+    )
     out["missing_values"] = missing_numbers + sorted(missing_terms)
 
     # 2. Token-overlap (bag-of-words) similarity: diagnostic only, NOT a quality verdict.
     ans_tokens = _tokens(answer)
     if ans_tokens and truth_tokens:
-        out["token_overlap"] = round(len(ans_tokens & truth_tokens) / len(truth_tokens), 4)
+        out["token_overlap"] = round(
+            len(ans_tokens & truth_tokens) / len(truth_tokens), 4
+        )
     else:
         out["token_overlap"] = 0.0
 
@@ -74,7 +79,9 @@ def main() -> None:
 
     scored = [e for e in evaluated if e["required_values_found"] is not None]
     mean_required = (
-        sum(e["required_values_found"] for e in scored) / len(scored) if scored else None
+        sum(e["required_values_found"] for e in scored) / len(scored)
+        if scored
+        else None
     )
     mean_overlap = (
         sum(e["token_overlap"] for e in scored) / len(scored) if scored else None
