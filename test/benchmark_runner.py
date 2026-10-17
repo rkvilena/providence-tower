@@ -12,7 +12,6 @@ import traceback
 
 from core.api.service import RagService
 from core.env import settings
-from core.rag.prompt import MODEL_DICT
 
 from test.benchmark_schemas import (
     TEST_DIR,
@@ -214,7 +213,7 @@ def main() -> None:
         f"Planner LLM:       {'ON' if settings.PLANNER_AGENT and settings.OPENAI_API_KEY else 'OFF'}"
     )
     print(f"Planner mode:      {settings.PLANNER_MODE}")
-    print(f"Planner model:     {MODEL_DICT['PLANNER']}")
+    print(f"Planner model:     {settings.PLANNER_MODEL}")
     print(f"Reranker:          {'ON' if settings.RERANK_ENABLED else 'OFF'}")
     print()
 
@@ -282,8 +281,8 @@ def write_outputs(
         dataset_path=dataset_path,
         dataset_hash=dataset_hash,
         results=results,
-        model=MODEL_DICT["PLANNER"],
-        planner_model=MODEL_DICT["PLANNER"],
+        model=settings.PLANNER_MODEL,
+        planner_model=settings.PLANNER_MODEL,
         reranker_enabled=settings.RERANK_ENABLED,
         started_at=started_at,
         completed_at=completed_at,

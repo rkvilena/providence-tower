@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from core.env import settings
-from core.rag.prompt import MODEL_DICT, PLANNER_PROMPT
+from core.rag.prompt import PLANNER_PROMPT
 from core.rag.schema import PlannerState, RagState
 
 
@@ -163,7 +163,7 @@ class LlmPlanner:
     def __init__(self, recovery: ManualPlanner) -> None:
         self.recovery = recovery
         self.llm = ChatOpenAI(
-            model=MODEL_DICT["PLANNER"],
+            model=settings.PLANNER_MODEL,
             api_key=settings.OPENAI_API_KEY,
             base_url=settings.OPENAI_BASE_URL or None,
             temperature=0.1,

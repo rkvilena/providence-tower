@@ -4,13 +4,6 @@ from __future__ import annotations
 # Bump when THINKER_PROMPT or the output schema changes; used in cache keys.
 THINKER_PROMPT_VERSION = "2"
 
-MODEL_DICT: dict[str, str] = {
-    "PLANNER": "gpt-4.1-nano",
-    "THINKER": "gpt-4.1-mini",
-    "THINKER_FAST": "gpt-4.1-nano",
-}
-
-
 PLANNER_PROMPT = """You are the Planner node in a RAG pipeline for the Ys series wiki corpus.
 Rewrite user input into retrieval-optimized query text for vector search.
 

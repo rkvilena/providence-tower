@@ -11,7 +11,6 @@ from langchain_openai import ChatOpenAI
 
 from core.env import settings
 from core.rag.prompt import (
-    MODEL_DICT,
     THINKER_JSON_INSTRUCTIONS,
     THINKER_PROMPT,
     THINKER_PROMPT_VERSION,
@@ -31,7 +30,7 @@ class ThinkerNode:
         self._cache = None
         if settings.OPENAI_API_KEY:
             self.llm = ChatOpenAI(
-                model=MODEL_DICT["THINKER"],
+                model=settings.THINKER_MODEL,
                 api_key=settings.OPENAI_API_KEY,
                 base_url=settings.OPENAI_BASE_URL or None,
                 temperature=0.1,
@@ -133,7 +132,7 @@ class ThinkerNode:
         """
         use_fast = self._use_fast_model(state)
         timing.routed_model = (
-            settings.THINKER_FAST_MODEL if use_fast else MODEL_DICT["THINKER"]
+            settings.THINKER_FAST_MODEL if use_fast else settings.THINKER_MODEL
         )
         if use_fast and self.fast_structured_llm:
             return self._run_llm_thinker(
@@ -244,7 +243,7 @@ class ThinkerNode:
             [
                 state.user_query.strip().lower(),
                 ",".join(chunk_ids),
-                MODEL_DICT["THINKER"],
+                settings.THINKER_MODEL,
                 settings.THINKER_FAST_MODEL,
                 THINKER_PROMPT_VERSION,
                 str(settings.THINKER_MAX_CHUNKS),

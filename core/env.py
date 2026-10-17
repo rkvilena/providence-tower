@@ -54,6 +54,7 @@ class Settings(BaseModel):
 
     PLANNER_AGENT: bool
     PLANNER_MODE: str
+    PLANNER_MODEL: str
     PLANNER_PRESERVE_RICH_QUERY: bool
     PLANNER_MAX_QUERIES: int
 
@@ -63,6 +64,7 @@ class Settings(BaseModel):
     RERANK_MIN_TOP_SCORE: float
     RERANK_BATCH_SIZE: int
 
+    THINKER_MODEL: str
     THINKER_MAX_CHUNKS: int
     THINKER_FULL_TEXT_CHUNKS: int
     THINKER_MAX_CHUNK_CHARS: int
@@ -107,12 +109,14 @@ settings = Settings(
     PLANNER_PRESERVE_RICH_QUERY=_to_bool(
         os.getenv("PLANNER_PRESERVE_RICH_QUERY"), default=False
     ),
+    PLANNER_MODEL=os.getenv("PLANNER_MODEL", "gpt-4.1-nano"),
     PLANNER_MAX_QUERIES=_to_int(os.getenv("PLANNER_MAX_QUERIES"), default=2),
     RERANK_ENABLED=_to_bool(os.getenv("RERANK_ENABLED"), default=True),
     RERANK_MODEL=os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
     RERANK_TOP_K=_to_int(os.getenv("RERANK_TOP_K"), default=20),
     RERANK_MIN_TOP_SCORE=_to_float(os.getenv("RERANK_MIN_TOP_SCORE"), default=0.7),
     RERANK_BATCH_SIZE=_to_int(os.getenv("RERANK_BATCH_SIZE"), default=32),
+    THINKER_MODEL=os.getenv("THINKER_MODEL", "gpt-4.1-mini"),
     THINKER_MAX_CHUNKS=_to_int(os.getenv("THINKER_MAX_CHUNKS"), default=8),
     THINKER_FULL_TEXT_CHUNKS=_to_int(os.getenv("THINKER_FULL_TEXT_CHUNKS"), default=3),
     THINKER_MAX_CHUNK_CHARS=_to_int(os.getenv("THINKER_MAX_CHUNK_CHARS"), default=600),
