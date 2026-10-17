@@ -51,6 +51,7 @@ class BenchmarkResult:
     total_execution_ms: float = 0.0
     retrieved_chunk_ids: list[str] = field(default_factory=list)
     used_chunk_ids: list[str] = field(default_factory=list)
+    used_chunk_recall: float = 0.0
     retrieval: RetrievalMetrics = field(default_factory=RetrievalMetrics)
     quality: QualityMetrics = field(default_factory=QualityMetrics)
     node_latencies_ms: dict[str, float] = field(default_factory=dict)

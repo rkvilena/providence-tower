@@ -4,6 +4,7 @@ import time
 from typing import Callable, Iterator
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.config import get_config
 
 from core.rag.planner import PlannerNode
 from core.rag.fetcher import FetcherNode
@@ -25,10 +26,20 @@ class RagGraph:
         result = self.graph.invoke({"state": state})
         return result["state"]
 
-    def stream(self, state: RagState) -> Iterator[tuple[str, RagState]]:
-        """Yield the current state after each completed graph node."""
+    def stream(
+        self, state: RagState, *, on_delta=None
+    ) -> Iterator[tuple[str, RagState]]:
+        """Yield the current state after each completed graph node.
+
+        ``on_delta`` is forwarded to the Thinker node so answer-text deltas
+        can be streamed to the caller while the graph runs.
+        """
         current = state
-        for update in self.graph.stream({"state": state}, stream_mode="updates"):
+        for update in self.graph.stream(
+            {"state": state},
+            stream_mode="updates",
+            config={"configurable": {"on_delta": on_delta}},
+        ):
             for node_name, node_update in update.items():
                 candidate = (
                     node_update.get("state") if isinstance(node_update, dict) else None
@@ -61,10 +72,17 @@ class RagGraph:
         return graph.compile()
 
     def _timed_node(
-        self, graph_state: GraphState, node: Callable[[RagState], RagState], name: str
+        self, graph_state: GraphState, node: Callable[..., RagState], name: str
     ) -> GraphState:
         state = graph_state["state"]
         start = time.perf_counter()
-        updated = node.run(state)
+        on_delta = None
+        config = get_config()
+        if config is not None and config.get("configurable"):
+            on_delta = config["configurable"].get("on_delta")
+        if name == "thinker" and on_delta is not None:
+            updated = node.run(state, on_delta=on_delta)
+        else:
+            updated = node.run(state)
         updated.node_latencies_ms[name] = round((time.perf_counter() - start) * 1000, 2)
         return {"state": updated}

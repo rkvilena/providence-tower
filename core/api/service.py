@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import warnings
 import logging
+import queue
+import threading
 from collections.abc import Iterator
 from typing import Any
 
@@ -159,7 +161,45 @@ class RagService:
                 data={"session_id": sid, "phase": "planner"},
             )
 
-            for node_name, state in rag.stream(state):
+            # Run the pipeline in a background thread so Thinker answer
+            # deltas can be yielded to the client as they arrive (real
+            # streaming, not buffered per-node). The queue carries:
+            #   ("answer_delta", text)     — streamed Thinker output fragment
+            #   ("node", node_name, state) — a graph node completed
+            #   ("error", exc)             — pipeline failure
+            #   None                        — graph finished
+            events: queue.Queue = queue.Queue()
+
+            def _on_delta(text: str) -> None:
+                events.put(("answer_delta", text))
+
+            def _run_graph() -> None:
+                try:
+                    for node_name, node_state in rag.stream(state, on_delta=_on_delta):
+                        events.put(("node", node_name, node_state))
+                except Exception as exc:  # noqa: BLE001 - forwarded to consumer
+                    events.put(("error", exc))
+                finally:
+                    events.put(None)
+
+            worker = threading.Thread(target=_run_graph, daemon=True)
+            worker.start()
+
+            while True:
+                item = events.get()
+                if item is None:
+                    break
+                kind = item[0]
+                if kind == "answer_delta":
+                    yield RagStreamEvent(
+                        event="answer_delta",
+                        data={"session_id": sid, "text": item[1]},
+                    )
+                    continue
+                if kind == "error":
+                    raise item[1]
+
+                node_name, state = item[1], item[2]
                 phase = phase_by_node.get(node_name, node_name)
                 completed_data: dict[str, Any] = {
                     "session_id": sid,

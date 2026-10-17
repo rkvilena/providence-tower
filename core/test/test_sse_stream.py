@@ -43,6 +43,7 @@ EXPECTED_EVENT_ORDER = [
     "retrieval_started",
     "retrieval_completed",
     "generation_started",
+    "answer_delta",
     "generation_completed",
     "context_started",
     "context_completed",
@@ -105,10 +106,13 @@ class _StubRag:
     def __init__(self, *, fail_on: str | None = None) -> None:
         self.fail_on = fail_on
 
-    def stream(self, state: RagState):
+    def stream(self, state: RagState, *, on_delta=None):
         for node in ("planner", "fetcher", "thinker", "context"):
             if node == self.fail_on:
                 raise RuntimeError("boom")
+            if node == "thinker" and on_delta is not None:
+                on_delta("Adol is ")
+                on_delta("the protagonist.")
             yield node, _advance(state, node)
 
 
@@ -162,6 +166,14 @@ def test_stream_rag_event_order_and_payloads() -> None:
     assert final["response"] == "Adol is the protagonist."
     assert final["chunk_count"] == 0
     assert final["planner"]["source"] == "manual"
+
+    # Streaming deltas arrive between generation_started and generation_completed.
+    names = [name for name, _ in events]
+    assert names.index("answer_delta") > names.index("generation_started")
+    assert names.index("answer_delta") < names.index("generation_completed")
+    deltas = [data for name, data in events if name == "answer_delta"]
+    assert [d["text"] for d in deltas] == ["Adol is ", "the protagonist."]
+    assert all(d["session_id"] == "s1" for d in deltas)
 
 
 def test_stream_rag_error_event() -> None:

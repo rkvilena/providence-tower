@@ -97,6 +97,8 @@ class ThinkerState(BaseModel):
     used_chunk_ids: list[str] = Field(default_factory=list)
     response: str = ""
     reasoning: list[str] = Field(default_factory=list)
+    """Deprecated: no consumer reads this. Kept optional for backward compat;
+    the prompt instructs the model to return an empty list."""
 
 
 class ThinkerTiming(BaseModel):
@@ -109,6 +111,14 @@ class ThinkerTiming(BaseModel):
     output_chars: int = 0
     estimated_output_tokens: int = 0
     used_chunk_count: int = 0
+    dropped_chunk_count: int = 0
+    truncated_chunk_count: int = 0
+    skipped: bool = False
+    skip_reason: str = ""
+    routed_model: str = ""
+    streamed: bool = False
+    ttft_ms: float | None = None
+    cache_hit: bool = False
     highest_chunk_score: float | None = None
     lowest_chunk_score: float | None = None
 

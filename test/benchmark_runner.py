@@ -82,8 +82,14 @@ def run_question(service: RagService, row: dict) -> BenchmarkResult:
             }
         if state.thinker_timing is not None:
             result.thinker_timing = state.thinker_timing.model_dump()
+        result.used_chunk_ids = list(state.thinker_state.used_chunk_ids)
         result.retrieval = compute_retrieval_metrics(
             expected_ids, result.retrieved_chunk_ids
+        )
+        used_set = set(result.used_chunk_ids)
+        exp_set = set(expected_ids)
+        result.used_chunk_recall = (
+            round(len(exp_set & used_set) / len(exp_set), 4) if exp_set else 0.0
         )
     except Exception as exc:  # keep the run alive; record and continue
         result.total_execution_ms = round((time.perf_counter() - start) * 1000, 2)

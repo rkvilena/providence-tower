@@ -63,6 +63,24 @@ class Settings(BaseModel):
     RERANK_MIN_TOP_SCORE: float
     RERANK_BATCH_SIZE: int
 
+    THINKER_MAX_CHUNKS: int
+    THINKER_FULL_TEXT_CHUNKS: int
+    THINKER_MAX_CHUNK_CHARS: int
+    THINKER_CONTEXT_BUDGET: int
+
+    THINKER_SKIP_ENABLED: bool
+    THINKER_SKIP_MIN_SCORE: float
+    THINKER_SKIP_MAX_SCORE: float
+
+    THINKER_FAST_MODEL: str
+    THINKER_FAST_ENABLED: bool
+    THINKER_FAST_MAX_QUERY_CHARS: int
+    THINKER_FAST_MAX_CHUNKS: int
+    THINKER_FAST_MIN_TOP_SCORE: float
+
+    THINKER_CACHE_ENABLED: bool
+    THINKER_CACHE_TTL_SECONDS: int
+
     RATE_LIMIT_SHORT_WINDOW_SECONDS: int
     RATE_LIMIT_SHORT_MAX_REQUESTS: int
     RATE_LIMIT_LONG_WINDOW_SECONDS: int
@@ -95,6 +113,26 @@ settings = Settings(
     RERANK_TOP_K=_to_int(os.getenv("RERANK_TOP_K"), default=20),
     RERANK_MIN_TOP_SCORE=_to_float(os.getenv("RERANK_MIN_TOP_SCORE"), default=0.7),
     RERANK_BATCH_SIZE=_to_int(os.getenv("RERANK_BATCH_SIZE"), default=32),
+    THINKER_MAX_CHUNKS=_to_int(os.getenv("THINKER_MAX_CHUNKS"), default=8),
+    THINKER_FULL_TEXT_CHUNKS=_to_int(os.getenv("THINKER_FULL_TEXT_CHUNKS"), default=3),
+    THINKER_MAX_CHUNK_CHARS=_to_int(os.getenv("THINKER_MAX_CHUNK_CHARS"), default=600),
+    THINKER_CONTEXT_BUDGET=_to_int(os.getenv("THINKER_CONTEXT_BUDGET"), default=6000),
+    THINKER_SKIP_ENABLED=_to_bool(os.getenv("THINKER_SKIP_ENABLED"), default=True),
+    THINKER_SKIP_MIN_SCORE=_to_float(os.getenv("THINKER_SKIP_MIN_SCORE"), default=0.05),
+    THINKER_SKIP_MAX_SCORE=_to_float(os.getenv("THINKER_SKIP_MAX_SCORE"), default=0.08),
+    THINKER_FAST_MODEL=os.getenv("THINKER_FAST_MODEL", "gpt-4.1-nano"),
+    THINKER_FAST_ENABLED=_to_bool(os.getenv("THINKER_FAST_ENABLED"), default=True),
+    THINKER_FAST_MAX_QUERY_CHARS=_to_int(
+        os.getenv("THINKER_FAST_MAX_QUERY_CHARS"), default=80
+    ),
+    THINKER_FAST_MAX_CHUNKS=_to_int(os.getenv("THINKER_FAST_MAX_CHUNKS"), default=2),
+    THINKER_FAST_MIN_TOP_SCORE=_to_float(
+        os.getenv("THINKER_FAST_MIN_TOP_SCORE"), default=0.5
+    ),
+    THINKER_CACHE_ENABLED=_to_bool(os.getenv("THINKER_CACHE_ENABLED"), default=True),
+    THINKER_CACHE_TTL_SECONDS=_to_int(
+        os.getenv("THINKER_CACHE_TTL_SECONDS"), default=3600
+    ),
     RATE_LIMIT_SHORT_WINDOW_SECONDS=_to_int(
         os.getenv("RATE_LIMIT_SHORT_WINDOW_SECONDS"), default=60
     ),
