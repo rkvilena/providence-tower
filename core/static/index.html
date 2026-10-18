@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Providence Tower v2 — RAG Chat</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/css/app.css" />
+
+  <!-- App modules: must load BEFORE Alpine, which consumes chat() -->
+  <script src="/js/chat-config.js"></script>
+  <script src="/js/chat-api.js"></script>
+  <script src="/js/chat-renderer.js"></script>
+  <script src="/js/chat.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <style>
-    .msg-in { animation: fade-in 0.25s ease-out; }
-    @keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-    .spinner { border: 3px solid #e5e7eb; border-top-color: #3b82f6; border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 0.6s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
 </head>
 <body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
   <div class="w-full max-w-2xl mx-auto bg-white rounded-2xl shadow-lg flex flex-col h-[85vh]"
@@ -24,10 +25,23 @@
         <h1 class="text-lg font-semibold text-gray-800">Providence Tower v2</h1>
         <p class="text-xs text-gray-400">Ys series RAG chat</p>
       </div>
-      <button @click="resetChat()"
-              class="text-sm text-gray-500 hover:text-gray-700 border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-1.5 transition-colors">
-        + New Chat
-      </button>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-xs text-gray-500 select-none">
+          <span>Display speed</span>
+          <select x-model.number="displaySpeedMs"
+                  class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors cursor-pointer">
+            <option value="0">Instant</option>
+            <option value="8">Very fast (8 ms/char)</option>
+            <option value="20">Fast (20 ms/char)</option>
+            <option value="45">Normal (45 ms/char)</option>
+            <option value="90">Slow (90 ms/char)</option>
+          </select>
+        </label>
+        <button @click="resetChat()"
+                class="text-sm text-gray-500 hover:text-gray-700 border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-1.5 transition-colors">
+          + New Chat
+        </button>
+      </div>
     </div>
 
     <!-- Messages -->
@@ -55,7 +69,8 @@
         </div>
       </template>
 
-      <!-- Loading indicator -->
+      <!-- Loading indicator: visible ONLY while the backend pipeline runs.
+           Hidden the moment final_answer arrives; never shows a "Typing…" state. -->
       <div x-show="loading" class="flex justify-start">
         <div class="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-2 text-sm text-gray-500">
           <div class="spinner"></div>
@@ -70,10 +85,10 @@
         <input type="text"
                x-model="input"
                placeholder="Ask about the Ys series…"
-               :disabled="loading"
+               :disabled="loading || typing"
                class="flex-1 rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors" />
         <button type="submit"
-                :disabled="loading || !input.trim()"
+                :disabled="loading || typing || !input.trim()"
                 class="rounded-xl bg-blue-600 text-white px-5 py-2.5 text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
           Send
         </button>
@@ -81,139 +96,7 @@
     </div>
   </div>
 
-  <script>
-    const PHASE_LABELS = {
-      planner: 'Planning query…',
-      retrieval: 'Searching knowledge…',
-      generation: 'Thinking…',
-      context: 'Finalizing…',
-    };
-
-    function chat() {
-      return {
-        messages: [],
-        input: '',
-        loading: false,
-        phaseLabel: 'Thinking…',
-        sessionId: self.crypto.randomUUID(),
-        autoScroll: true,
-
-        init() {
-          this.$watch('messages', () => {
-            if (this.autoScroll) this.$nextTick(() => this.scrollDown());
-          });
-          this.$watch('loading', () => {
-            if (!this.loading) this.$nextTick(() => this.scrollDown());
-          });
-        },
-
-        scrollDown() {
-          const el = this.$refs.messages;
-          if (el) el.scrollTop = el.scrollHeight;
-        },
-
-        checkScroll() {
-          const el = this.$refs.messages;
-          if (!el) return;
-          const threshold = 60;
-          this.autoScroll = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-        },
-
-        async send() {
-          const query = this.input.trim();
-          if (!query || this.loading) return;
-
-          this.messages.push({ role: 'user', content: query });
-          this.input = '';
-          this.loading = true;
-          this.phaseLabel = 'Planning query…';
-
-          try {
-            const data = await this.sendStream(query);
-            this.sessionId = data.session_id;
-            this.messages.push({
-              role: 'assistant',
-              content: data.response || '(No response generated)',
-              trace: data.debug_trace || [],
-            });
-          } catch (err) {
-            this.messages.push({
-              role: 'assistant',
-              content: `**Error:** ${err.message}`,
-            });
-          } finally {
-            this.loading = false;
-          }
-        },
-
-        async sendStream(query) {
-          const resp = await fetch('/rag/chat/stream', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-            body: JSON.stringify({ query, session_id: this.sessionId }),
-          });
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-            const msg = resp.status === 429
-              ? err.detail || 'Rate limit exceeded. Usage is limited due to the application\'s nature as portfolio.'
-              : err.detail || `HTTP ${resp.status}`;
-            throw new Error(msg);
-          }
-          if (!resp.body) throw new Error('Streaming response body is unavailable');
-
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let finalAnswer = null;
-          while (true) {
-            const { value, done } = await reader.read();
-            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-            const frames = buffer.split('\n\n');
-            buffer = frames.pop() || '';
-            for (const frame of frames) {
-              const lines = frame.split('\n');
-              const eventName = (lines.find(line => line.startsWith('event: ')) || '').slice(7);
-              const dataLine = lines.find(line => line.startsWith('data: '));
-              if (!eventName || !dataLine) continue;
-              const event = JSON.parse(dataLine.slice(6));
-              if (eventName === 'pipeline_error') {
-                throw new Error(event.detail || 'Pipeline failed');
-              }
-              if (eventName === 'final_answer') {
-                finalAnswer = event;
-              } else if (eventName.endsWith('_started') && event.phase) {
-                this.phaseLabel = PHASE_LABELS[event.phase] || 'Thinking…';
-              } else if (eventName === 'retrieval_completed' && event.chunk_count != null) {
-                this.phaseLabel = `Found ${event.chunk_count} chunks…`;
-              }
-            }
-            if (done) break;
-          }
-          if (!finalAnswer) throw new Error('Stream ended without a final answer');
-          return finalAnswer;
-        },
-
-        resetChat() {
-          this.messages = [];
-          this.sessionId = self.crypto.randomUUID();
-          this.loading = false;
-          this.input = '';
-          this.autoScroll = true;
-        },
-
-        render(text) {
-          // Browser-native HTML escaping, then apply inline Markdown + URL linking
-          const div = document.createElement('div');
-          div.appendChild(document.createTextNode(text));
-          return div.innerHTML
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/`(.+?)`/g, '<code class="bg-gray-200 rounded px-1 text-xs">$1</code>')
-            .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline hover:text-blue-800">$1</a>')
-            .replace(/\n/g, '<br>');
-        },
-      };
-    }
-  </script>
+  <!-- App logic lives in /js/chat-config.js, /js/chat-api.js,
+       /js/chat-renderer.js and /js/chat.js (loaded in <head>). -->
 </body>
 </html>
