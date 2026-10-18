@@ -1,6 +1,9 @@
 .env
 .venv
 .chainlit
+.empryo
+.clinerules
+.clineignore
 __pycache__
 
 blueprint/
@@ -8,3 +11,4 @@ cached_models/
 data/
 embed_chunk/
 secret/
+test/results/

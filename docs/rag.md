@@ -175,3 +175,27 @@ Key settings in environment configuration:
 - Model names and API endpoints for each component
 
 The LangGraph architecture provides a robust, extensible foundation for the RAG pipeline, enabling clear separation of concerns and easy maintenance of each processing stage.
+
+## Phase-progress SSE endpoint
+
+The API also exposes `POST /rag/chat/stream`. It accepts the same JSON body as `/rag/chat` and returns `text/event-stream` events. The stream reports planner, retrieval, generation, and context progress before sending a `final_answer` event containing the normal `ChatResponse` payload.
+
+This is phase-progress streaming, not token-level LLM streaming. The bundled frontend uses this endpoint by default and consumes it with `fetch()` because the request is a POST with a JSON body.
+
+Typical event order:
+
+```text
+pipeline_started
+planner_started
+planner_completed
+retrieval_started
+retrieval_completed
+generation_started
+generation_completed
+context_started
+context_completed
+final_answer
+pipeline_completed
+```
+
+Unrecoverable errors are sent as a `pipeline_error` event.

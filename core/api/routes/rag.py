@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
 from core.api.rate_limiter import get_redis_rate_limiter
 
@@ -12,38 +12,14 @@ from core.api.schemas import (
     ChatRequest,
     ChatResponse,
     ErrorResponse,
-    PlannerResponse,
     SessionClearResponse,
+    build_chat_response,
 )
 from core.api.service import RagService
-from core.rag.schema import RagState
 
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
-
-
-def _build_chat_response(state: RagState) -> ChatResponse:
-    """Convert a final ``RagState`` into the public ``ChatResponse`` schema."""
-    think = state.thinker_state
-    plan = state.planner_state
-
-    return ChatResponse(
-        session_id=state.session_id,
-        response=(think.response or "").strip(),
-        sufficient=think.sufficient,
-        used_chunk_ids=list(think.used_chunk_ids),
-        debug_trace=list(state.debug_trace),
-        node_latencies_ms=dict(state.node_latencies_ms),
-        planner=PlannerResponse(
-            condensed_query=plan.condensed_query,
-            planned_queries=list(plan.planned_queries),
-            entities=list(plan.entities),
-            reasoning=list(plan.reasoning),
-            source=plan.source,
-        ),
-        chunk_count=len(state.fetcher_state.chunks),
-    )
 
 
 @router.post(
@@ -67,7 +43,40 @@ def chat(
     brand-new session is created.
     """
     result = svc.run_rag(query=body.query, session_id=body.session_id)
-    return _build_chat_response(result)
+    return build_chat_response(result)
+
+
+@router.post(
+    "/chat/stream",
+    summary="Stream RAG phase progress and the final answer",
+    responses={429: {"model": ErrorResponse}},
+)
+def chat_stream(
+    body: ChatRequest,
+    svc: RagService = Depends(get_rag_service),
+    _rate_limiter: None = Depends(get_redis_rate_limiter),
+) -> StreamingResponse:
+    """Stream lifecycle events while the synchronous RAG pipeline executes.
+
+    Emits ``text/event-stream`` frames (``event: <name>`` + ``data: <json>``)
+    as the graph moves through its nodes, then a ``final_answer`` event with
+    the same payload as ``/rag/chat``.  Unrecoverable failures are reported
+    as a ``pipeline_error`` event instead of an HTTP error status.
+    """
+
+    def events():
+        for event in svc.stream_rag(query=body.query, session_id=body.session_id):
+            yield event.encode()
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post(

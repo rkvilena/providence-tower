@@ -13,6 +13,7 @@ from core.env import settings
 from core.rag.history import RedisHistoryStore, generate_session_id
 from core.rag.rag_graph import RagGraph
 from core.rag.schema import RagState
+from core.vector_store_factory import create_vector_store
 
 
 def _print_banner() -> None:
@@ -60,7 +61,7 @@ def main() -> None:
         print("Planner condensation: OFF (LLM disabled or missing OPENAI_API_KEY)")
     print()
 
-    rag = RagGraph()
+    rag = RagGraph(vector_store=create_vector_store())
     try:
         rag.warmup()
     except Exception:

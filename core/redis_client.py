@@ -25,7 +25,8 @@ def _build_pool(*, decode_responses: bool) -> redis.ConnectionPool:
     Supports both local Redis Stack (host/port/db/password) and
     Upstash Redis (URL with ``rediss://`` scheme).
     """
-    url: str | None = settings.UPSTASH_REDIS_URL or None
+    provider = (settings.VECTOR_STORE_PROVIDER or "redis_stack").strip().lower()
+    url: str | None = settings.UPSTASH_REDIS_URL if provider == "upstash" else None
 
     if url:
         return redis.ConnectionPool.from_url(
