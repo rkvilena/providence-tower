@@ -14,7 +14,7 @@ except ModuleNotFoundError:
     from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 
-from core.embedding.embedding_service import ChunkDocument
+from core.embedding.schema import ChunkDocument
 
 
 LOGGER = logging.getLogger(__name__)

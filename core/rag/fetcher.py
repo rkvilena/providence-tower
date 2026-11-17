@@ -4,9 +4,15 @@ import logging
 import time
 from dataclasses import dataclass
 
+import numpy as np
+
 from core.env import settings
-from core.embedding.embedding_service import EmbeddingService
-from core.rag.reranker import CrossEncoderReranker
+from core.inference.cloudflare_workers_ai import (
+    EMBEDDING_DIMENSIONS,
+    CloudflareAPIError,
+    CloudflareWorkersAIClient,
+)
+from core.rag.reranker import CloudflareReranker
 from core.rag.schema import (
     ChunkHit,
     FetchTimingTotals,
@@ -40,18 +46,14 @@ class FetcherNode:
     def __init__(
         self,
         vector_store: VectorStoreProtocol,
+        *,
+        cloudflare_client: CloudflareWorkersAIClient | None = None,
     ) -> None:
         self.store = vector_store
-        self.embedder = EmbeddingService()
-        self.reranker = (
-            CrossEncoderReranker(
-                model_name=settings.RERANK_MODEL,
-                min_top_score=settings.RERANK_MIN_TOP_SCORE,
-                batch_size=settings.RERANK_BATCH_SIZE,
-            )
-            if settings.RERANK_ENABLED
-            else None
-        )
+        # Only query embedding runs in the cloud; corpus preparation keeps
+        # using the local BGE model.
+        self.cloudflare = cloudflare_client or CloudflareWorkersAIClient()
+        self.reranker = CloudflareReranker() if settings.RERANK_ENABLED else None
 
     def run(self, state: RagState) -> RagState:
         state.add_trace("Fetcher node started.")
@@ -123,7 +125,7 @@ class FetcherNode:
 
         A failing query is traced on the state and skipped; its (partial)
         timing is still recorded. Reranking is deliberately kept out of
-        this loop so all queries share one reranker model call.
+        this loop so each query is reranked once after retrieval.
         """
         query_timings: list[QueryFetchTiming] = []
         hits_by_query: list[tuple[str, list[ChunkHit]]] = []
@@ -150,7 +152,7 @@ class FetcherNode:
         record the error while keeping the partial timing.
         """
         embed_start = time.perf_counter()
-        query_vector = self.embedder.embed_query(query)
+        query_vector = self._embed_query(query)
         timing.embedding_ms = _ms(embed_start)
 
         search_start = time.perf_counter()
@@ -165,6 +167,24 @@ class FetcherNode:
         timing.result_count = len(query_hits)
         return query_hits
 
+    def _embed_query(self, query: str) -> np.ndarray:
+        """Embed one query through Cloudflare and normalize the vector shape.
+
+        Raises instead of falling back to local inference so mixed-provider
+        drift cannot silently corrupt retrieval.
+        """
+        vector = np.asarray(self.cloudflare.embed_query(query), dtype=np.float32)
+        if vector.ndim != 1 or vector.shape[0] != EMBEDDING_DIMENSIONS:
+            raise CloudflareAPIError(
+                "Cloudflare query embedding returned an unexpected shape "
+                f"{vector.shape}; expected ({EMBEDDING_DIMENSIONS},)."
+            )
+        if not np.all(np.isfinite(vector)):
+            raise CloudflareAPIError(
+                "Cloudflare query embedding returned non-finite values."
+            )
+        return vector
+
     def _rerank_and_merge(
         self,
         state: RagState,
@@ -172,7 +192,7 @@ class FetcherNode:
         hits_by_chunk_id: dict[str, ChunkHit],
         best_rank_by_chunk_id: dict[str, int],
     ) -> RerankOutcome:
-        """Rerank every query/chunk pair in one shared model call, then merge."""
+        """Rerank each query's candidates with Cloudflare, then merge."""
         if self.reranker is None or not any(hits for _, hits in hits_by_query):
             return NO_RERANK
 
@@ -182,24 +202,27 @@ class FetcherNode:
 
         merge_start = time.perf_counter()
         for (query, query_hits), rerank_result in zip(hits_by_query, rerank_results):
-            state.add_trace(
-                f"Reranker top_score={rerank_result.top_score:.4f} "
-                f"threshold={settings.RERANK_MIN_TOP_SCORE:.2f} "
-                f"passed={rerank_result.passed_threshold}"
+            if rerank_result.failed:
+                state.add_trace(
+                    f"Rerank failed for query '{query}': {rerank_result.error}. "
+                    "Using vector-search order."
+                )
+            else:
+                state.add_trace(
+                    f"Reranked query '{query}' with top_score="
+                    f"{rerank_result.top_score:.4f}"
+                )
+            self._merge_hits(
+                rerank_result.hits, hits_by_chunk_id, best_rank_by_chunk_id
             )
-            # Keep the reranked order only when the query passes the
-            # threshold; otherwise fall back to the vector-search order.
-            ordered_hits = (
-                rerank_result.hits if rerank_result.passed_threshold else query_hits
-            )
-            self._merge_hits(ordered_hits, hits_by_chunk_id, best_rank_by_chunk_id)
         merge_ms = _ms(merge_start)
 
         return RerankOutcome(
             rerank_ms=rerank_ms,
             merge_ms=merge_ms,
             pair_count=sum(len(hits) for _, hits in hits_by_query),
-            model_calls=1,
+            # One Cloudflare request per non-empty query.
+            model_calls=sum(1 for _, hits in hits_by_query if hits),
         )
 
     def _merge_search_order(

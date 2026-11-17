@@ -1,4 +1,4 @@
-"""Unit tests for CrossEncoderReranker batch reranking.
+"""Unit tests for Cloudflare-backed RAG reranking.
 
 Run from the project root:
     python -m pytest test/unit -q
@@ -6,22 +6,35 @@ Run from the project root:
 
 from __future__ import annotations
 
-import numpy as np
+import logging
 
-from core.rag.reranker import CrossEncoderReranker
-from core.rag.schema import ChunkHit
+from core.inference.cloudflare_workers_ai import CloudflareAPIError, RerankScore
+from core.rag.fetcher import FetcherNode
+from core.rag.reranker import CloudflareReranker
+from core.rag.schema import ChunkHit, PlannerState, RagState
 
 
-class FakeModel:
-    """Stands in for CrossEncoder; records calls and returns deterministic scores."""
+class FakeCloudflareClient:
+    """Stands in for the shared client and records rerank requests."""
 
-    def __init__(self) -> None:
-        self.calls: list[tuple[list[tuple[str, str]], int]] = []
+    def __init__(
+        self,
+        *,
+        error: Exception | None = None,
+        scores: dict[int, float] | None = None,
+    ) -> None:
+        self.error = error
+        self.scores = scores or {}
+        self.calls: list[tuple[str, list[str]]] = []
 
-    def predict(self, pairs, batch_size: int = 32, show_progress_bar=None, **kwargs):
-        self.calls.append((list(pairs), batch_size))
-        # Deterministic: score by passage length so ordering is verifiable.
-        return np.array([float(len(text)) for _, text in pairs])
+    def rerank(self, query: str, texts: list[str]) -> list[RerankScore]:
+        self.calls.append((query, list(texts)))
+        if self.error is not None:
+            raise self.error
+        return [
+            RerankScore(index=index, score=self.scores.get(index, float(len(text))))
+            for index, text in enumerate(texts)
+        ]
 
 
 def make_hit(chunk_id: str, text: str, score: float = 0.9) -> ChunkHit:
@@ -34,88 +47,131 @@ def make_hit(chunk_id: str, text: str, score: float = 0.9) -> ChunkHit:
     )
 
 
-def make_reranker(
-    min_top_score: float = 0.7, batch_size: int = 32
-) -> CrossEncoderReranker:
-    reranker = CrossEncoderReranker.__new__(CrossEncoderReranker)
-    reranker.model = FakeModel()
-    reranker.min_top_score = min_top_score
-    reranker.batch_size = batch_size
-    return reranker
+def make_reranker(client: FakeCloudflareClient) -> CloudflareReranker:
+    return CloudflareReranker(client=client)
 
 
-def test_rerank_batch_uses_single_model_call():
-    reranker = make_reranker()
+def test_rerank_sends_one_request_per_non_empty_query():
+    client = FakeCloudflareClient()
+    reranker = make_reranker(client)
     q1_hits = [make_hit("a1", "short"), make_hit("a2", "a much longer passage here")]
     q2_hits = [make_hit("b1", "medium length text")]
 
-    results = reranker.rerank_batch([("q1", q1_hits), ("q2", q2_hits)])
+    results = reranker.rerank_batch([("q1", q1_hits), ("q2", q2_hits), ("q3", [])])
 
-    assert len(reranker.model.calls) == 1
-    pairs, batch_size = reranker.model.calls[0]
-    assert batch_size == 32
-    assert pairs == [
-        ("q1", "short"),
-        ("q1", "a much longer passage here"),
-        ("q2", "medium length text"),
-    ]
-    assert [r.hits[0].chunk_id for r in results] == ["a2", "b1"]
+    assert [call[0] for call in client.calls] == ["q1", "q2"]
+    assert client.calls[0][1] == ["short", "a much longer passage here"]
+    assert client.calls[1][1] == ["medium length text"]
+    assert [result.hits[0].chunk_id for result in results[:2]] == ["a2", "b1"]
+    assert results[2].hits == []
+    assert results[2].failed is False
 
 
-def test_rerank_batch_ranks_and_thresholds_independently():
-    reranker = make_reranker(min_top_score=0.7)
-    hits = [make_hit("a1", "short"), make_hit("a2", "a much longer passage here")]
+def test_rerank_maps_response_indices_back_to_original_hits():
+    client = FakeCloudflareClient(scores={0: 0.1, 1: 0.9, 2: 0.5})
+    reranker = make_reranker(client)
+    hits = [make_hit("a", "alpha"), make_hit("b", "bravo"), make_hit("c", "charlie")]
 
-    results = reranker.rerank_batch([("q1", hits), ("q2", [])])
+    result = reranker.rerank("query", hits)
 
-    passed, empty = results
-    assert [h.chunk_id for h in passed.hits] == ["a2", "a1"]  # sorted desc by score
-    assert passed.top_score == len("a much longer passage here")
-    assert passed.passed_threshold is True
-
-    assert empty.hits == []
-    assert empty.top_score == 0.0
-    assert empty.passed_threshold is False
+    assert [hit.chunk_id for hit in result.hits] == ["b", "c", "a"]
+    assert result.top_score == 0.9
+    assert result.failed is False
 
 
-def test_rerank_batch_forwards_configured_batch_size():
-    reranker = make_reranker(batch_size=8)
-    hits = [make_hit("a1", "x"), make_hit("a2", "yy")]
+def test_rerank_keeps_unscored_hits_in_original_order():
+    class PartialClient(FakeCloudflareClient):
+        def rerank(self, query: str, texts: list[str]) -> list[RerankScore]:
+            self.calls.append((query, list(texts)))
+            return [RerankScore(index=1, score=0.9)]
 
-    reranker.rerank_batch([("q1", hits)])
+    reranker = make_reranker(PartialClient())
+    hits = [make_hit("a", "alpha"), make_hit("b", "bravo"), make_hit("c", "charlie")]
 
-    _, batch_size = reranker.model.calls[0]
-    assert batch_size == 8
+    result = reranker.rerank("query", hits)
+
+    assert [hit.chunk_id for hit in result.hits] == ["b", "a", "c"]
+
+
+def test_rerank_failure_retains_vector_search_order(caplog):
+    client = FakeCloudflareClient(error=CloudflareAPIError("upstream unavailable"))
+    reranker = make_reranker(client)
+    hits = [make_hit("a1", "short"), make_hit("a2", "longer")]
+
+    with caplog.at_level(logging.WARNING):
+        result = reranker.rerank("query", hits)
+
+    assert result.hits == hits
+    assert result.failed is True
+    assert "upstream unavailable" in result.error
+    assert "Cloudflare rerank failed" in caplog.text
+
+
+def test_rerank_empty_hits_skips_the_cloud_call():
+    client = FakeCloudflareClient()
+    reranker = make_reranker(client)
+
+    result = reranker.rerank("query", [])
+
+    assert result.hits == []
+    assert result.top_score == 0.0
+    assert client.calls == []
 
 
 def test_rerank_single_query_matches_batch_result():
-    reranker = make_reranker()
-    hits = [make_hit("a1", "short"), make_hit("a2", "a much longer passage here")]
+    client = FakeCloudflareClient(scores={0: 0.2, 1: 0.8})
+    reranker = make_reranker(client)
+    hits = [make_hit("a1", "short"), make_hit("a2", "longer")]
 
-    single = reranker.rerank("q1", hits)
-    batched = reranker.rerank_batch([("q1", hits)])[0]
+    single = reranker.rerank("query", hits)
+    batched = reranker.rerank_batch([("query", hits)])[0]
 
-    assert single.hits == batched.hits
-    assert single.top_score == batched.top_score
-    assert single.passed_threshold == batched.passed_threshold
-
-
-def test_rerank_empty_hits():
-    reranker = make_reranker()
-    result = reranker.rerank("q1", [])
-    assert result.hits == []
-    assert result.top_score == 0.0
-    assert result.passed_threshold is False
-    assert reranker.model.calls == []
+    assert single == batched
 
 
-def test_rerank_batch_failure_threshold_per_query():
-    # Below threshold -> passed_threshold=False; the Fetcher keeps the
-    # vector-search ordering. The reranker still reports reranked hits.
-    reranker = make_reranker(min_top_score=10_000.0)
-    hits = [make_hit("a1", "short"), make_hit("a2", "a much longer passage here")]
+def make_fetcher(reranker) -> FetcherNode:
+    fetcher = FetcherNode.__new__(FetcherNode)
+    fetcher.store = None
+    fetcher.cloudflare = None
+    fetcher.reranker = reranker
+    return fetcher
 
-    result = reranker.rerank("q1", hits)
-    assert result.passed_threshold is False
-    assert [h.chunk_id for h in result.hits] == ["a2", "a1"]  # reranked order
-    assert result.top_score < 10_000.0
+
+def test_fetcher_reports_one_model_call_per_non_empty_query():
+    client = FakeCloudflareClient()
+    fetcher = make_fetcher(make_reranker(client))
+    state = RagState(
+        session_id="s",
+        user_query="q",
+        planner_state=PlannerState(planned_queries=["q1", "q2"]),
+    )
+    hits_by_query = [
+        ("q1", [make_hit("a1", "short")]),
+        ("q2", [make_hit("b1", "other")]),
+        ("q3", []),
+    ]
+
+    outcome = fetcher._rerank_and_merge(state, hits_by_query, {}, {})
+
+    assert outcome.model_calls == 2
+    assert len(client.calls) == 2
+    assert outcome.pair_count == 2
+
+
+def test_fetcher_keeps_original_order_when_rerank_fails():
+    client = FakeCloudflareClient(error=CloudflareAPIError("bad gateway"))
+    fetcher = make_fetcher(make_reranker(client))
+    state = RagState(
+        session_id="s",
+        user_query="q",
+        planner_state=PlannerState(planned_queries=["q1"]),
+    )
+    original_hits = [make_hit("a1", "short"), make_hit("a2", "longer", score=0.1)]
+
+    outcome = fetcher._rerank_and_merge(state, [("q1", original_hits)], {}, {})
+
+    assert outcome.model_calls == 1
+    assert any(
+        "Rerank failed for query 'q1'" in trace and "vector-search order" in trace
+        for trace in state.debug_trace
+    )

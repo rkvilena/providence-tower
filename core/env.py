@@ -44,6 +44,9 @@ class Settings(BaseModel):
     OPENAI_API_KEY: str | None
     OPENAI_BASE_URL: str | None
 
+    CLOUDFLARE_ACCOUNT_ID: str | None
+    CLOUDFLARE_AUTH_TOKEN: str | None
+
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_DB: int
@@ -59,10 +62,7 @@ class Settings(BaseModel):
     PLANNER_MAX_QUERIES: int
 
     RERANK_ENABLED: bool
-    RERANK_MODEL: str
     RERANK_TOP_K: int
-    RERANK_MIN_TOP_SCORE: float
-    RERANK_BATCH_SIZE: int
 
     THINKER_MODEL: str
     THINKER_MAX_CHUNKS: int
@@ -98,6 +98,8 @@ settings = Settings(
     EMBEDDING_MODEL=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
     OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
     OPENAI_BASE_URL=os.getenv("OPENAI_BASE_URL"),
+    CLOUDFLARE_ACCOUNT_ID=os.getenv("CLOUDFLARE_ACCOUNT_ID"),
+    CLOUDFLARE_AUTH_TOKEN=os.getenv("CLOUDFLARE_AUTH_TOKEN"),
     REDIS_HOST=os.getenv("REDIS_HOST", "127.0.0.1"),
     REDIS_PORT=_to_int(os.getenv("REDIS_PORT"), default=6379),
     REDIS_DB=_to_int(os.getenv("REDIS_DB"), default=0),
@@ -109,14 +111,11 @@ settings = Settings(
     PLANNER_PRESERVE_RICH_QUERY=_to_bool(
         os.getenv("PLANNER_PRESERVE_RICH_QUERY"), default=False
     ),
-    PLANNER_MODEL=os.getenv("PLANNER_MODEL", "gpt-4.1-nano"),
+    PLANNER_MODEL=os.getenv("PLANNER_MODEL", "gpt-5.6-luna"),
     PLANNER_MAX_QUERIES=_to_int(os.getenv("PLANNER_MAX_QUERIES"), default=2),
     RERANK_ENABLED=_to_bool(os.getenv("RERANK_ENABLED"), default=True),
-    RERANK_MODEL=os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
     RERANK_TOP_K=_to_int(os.getenv("RERANK_TOP_K"), default=20),
-    RERANK_MIN_TOP_SCORE=_to_float(os.getenv("RERANK_MIN_TOP_SCORE"), default=0.7),
-    RERANK_BATCH_SIZE=_to_int(os.getenv("RERANK_BATCH_SIZE"), default=32),
-    THINKER_MODEL=os.getenv("THINKER_MODEL", "gpt-4.1-mini"),
+    THINKER_MODEL=os.getenv("THINKER_MODEL", "gpt-5.6-luna"),
     THINKER_MAX_CHUNKS=_to_int(os.getenv("THINKER_MAX_CHUNKS"), default=8),
     THINKER_FULL_TEXT_CHUNKS=_to_int(os.getenv("THINKER_FULL_TEXT_CHUNKS"), default=3),
     THINKER_MAX_CHUNK_CHARS=_to_int(os.getenv("THINKER_MAX_CHUNK_CHARS"), default=600),
@@ -124,7 +123,7 @@ settings = Settings(
     THINKER_SKIP_ENABLED=_to_bool(os.getenv("THINKER_SKIP_ENABLED"), default=True),
     THINKER_SKIP_MIN_SCORE=_to_float(os.getenv("THINKER_SKIP_MIN_SCORE"), default=0.05),
     THINKER_SKIP_MAX_SCORE=_to_float(os.getenv("THINKER_SKIP_MAX_SCORE"), default=0.08),
-    THINKER_FAST_MODEL=os.getenv("THINKER_FAST_MODEL", "gpt-4.1-nano"),
+    THINKER_FAST_MODEL=os.getenv("THINKER_FAST_MODEL", "gpt-5.6-luna"),
     THINKER_FAST_ENABLED=_to_bool(os.getenv("THINKER_FAST_ENABLED"), default=True),
     THINKER_FAST_MAX_QUERY_CHARS=_to_int(
         os.getenv("THINKER_FAST_MAX_QUERY_CHARS"), default=80

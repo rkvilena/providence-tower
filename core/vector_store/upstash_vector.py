@@ -6,7 +6,7 @@ import logging
 import numpy as np
 
 from typing import Any
-from core.embedding.embedding_service import ChunkDocument
+from core.embedding.schema import ChunkDocument
 from core.vector_store.search_result import VectorSearchResult
 from core.vector_store.protocol import VectorStoreProtocol
 

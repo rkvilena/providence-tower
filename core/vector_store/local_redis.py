@@ -13,7 +13,7 @@ except ModuleNotFoundError:
     from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 
-from core.embedding.embedding_service import ChunkDocument
+from core.embedding.schema import ChunkDocument
 from core.vector_store.search_result import VectorSearchResult
 from core.vector_store.protocol import VectorStoreProtocol
 

@@ -1,30 +1,43 @@
+"""RAG reranking through Cloudflare Workers AI.
+
+The local cross-encoder dependency is intentionally gone: reranking runs
+against `@cf/baai/bge-reranker-base` at request time. Corpus preparation and
+query embedding are handled elsewhere.
+"""
+
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
-from sentence_transformers import CrossEncoder
-
+from core.inference.cloudflare_workers_ai import (
+    CloudflareWorkersAIClient,
+    RerankScore,
+)
 from core.rag.schema import ChunkHit
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class RerankResult:
+    """Ranked hits for one query with failure details for tracing."""
+
     hits: list[ChunkHit]
-    top_score: float
-    passed_threshold: bool
+    top_score: float = 0.0
+    failed: bool = False
+    error: str = ""
 
 
-class CrossEncoderReranker:
+class CloudflareReranker:
+    """Rerank retrieval candidates with the Cloudflare BGE reranker."""
+
     def __init__(
         self,
         *,
-        model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-        min_top_score: float = 0.7,
-        batch_size: int = 32,
+        client: CloudflareWorkersAIClient | None = None,
     ) -> None:
-        self.model = CrossEncoder(model_name)
-        self.min_top_score = min_top_score
-        self.batch_size = batch_size
+        self.client = client or CloudflareWorkersAIClient()
 
     def rerank(self, query: str, hits: list[ChunkHit]) -> RerankResult:
         [result] = self.rerank_batch([(query, hits)])
@@ -33,42 +46,36 @@ class CrossEncoderReranker:
     def rerank_batch(
         self, query_hits: list[tuple[str, list[ChunkHit]]]
     ) -> list[RerankResult]:
-        """Score all query/chunk pairs in one model call, then rank per query.
+        """Rerank each non-empty query in its own remote request.
 
-        The returned list is aligned with ``query_hits``. Each result is ranked
-        and thresholded independently per query; only the model invocation is
-        shared.
+        Results are aligned with ``query_hits``. A failing query keeps its
+        original vector-search order so callers can merge it safely.
         """
-        results: list[RerankResult | None] = [None] * len(query_hits)
-        candidates: list[tuple[int, ChunkHit]] = []  # (result_index, hit)
+        return [self._rerank_one(query, hits) for query, hits in query_hits]
 
-        for index, (_, hits) in enumerate(query_hits):
-            if not hits:
-                results[index] = RerankResult(
-                    hits=[], top_score=0.0, passed_threshold=False
-                )
-                continue
-            candidates.extend((index, hit) for hit in hits)
+    def _rerank_one(self, query: str, hits: list[ChunkHit]) -> RerankResult:
+        if not hits:
+            return RerankResult(hits=[])
 
-        if candidates:
-            pairs = [(query_hits[index][0], hit.text) for index, hit in candidates]
-            scores = self.model.predict(
-                pairs,
-                batch_size=self.batch_size,
-                show_progress_bar=False,
-            ).tolist()
+        try:
+            scores = self.client.rerank(query, [hit.text for hit in hits])
+        except Exception as exc:  # noqa: BLE001 - preserve retrieval on any failure
+            LOGGER.warning("Cloudflare rerank failed: %s", exc)
+            return RerankResult(
+                hits=list(hits),
+                failed=True,
+                error=str(exc),
+            )
 
-            scored_by_index: dict[int, list[tuple[ChunkHit, float]]] = {}
-            for (index, hit), score in zip(candidates, scores):
-                scored_by_index.setdefault(index, []).append((hit, float(score)))
+        return RerankResult(
+            hits=self._order_hits(hits, scores),
+            top_score=max((score.score for score in scores), default=0.0),
+        )
 
-            for index, group in scored_by_index.items():
-                scored_hits = sorted(group, key=lambda item: item[1], reverse=True)
-                top_score = float(scored_hits[0][1])
-                results[index] = RerankResult(
-                    hits=[hit for hit, _ in scored_hits],
-                    top_score=top_score,
-                    passed_threshold=top_score > self.min_top_score,
-                )
-
-        return [result for result in results if result is not None]
+    @staticmethod
+    def _order_hits(hits: list[ChunkHit], scores: list[RerankScore]) -> list[ChunkHit]:
+        ranked = sorted(scores, key=lambda score: score.score, reverse=True)
+        scored_indices = {score.index for score in ranked}
+        return [hits[score.index] for score in ranked] + [
+            hit for index, hit in enumerate(hits) if index not in scored_indices
+        ]

@@ -37,21 +37,21 @@ START → [Planner] → [Fetcher] → [Thinker] → [Context] → END
 **What it actually does:**
 
 **Search process explained:**
-1. **Convert to numbers**: Turns each search query into mathematical vectors (384 numbers)
+1. **Convert to numbers**: Sends each search query to Cloudflare Workers AI `@cf/baai/bge-small-en-v1.5` (384 numbers, `mean` pooling)
 2. **Find similar content**: Searches Redis for content chunks with similar number patterns
 3. **Filter by topics**: Uses the key terms from Planner to focus on relevant sections
-4. **Quality check**: Reranks results to put the most relevant answers first
+4. **Quality check**: Sends the query and candidates to Cloudflare `@cf/baai/bge-reranker-base` and keeps its ranking
 5. **Remove duplicates**: Ensures you don't get the same information multiple times
 
 **Scoring system:**
 - 0.0 to 1.0 scale where higher numbers mean better matches
-- Typically keeps results above 0.4 similarity
-- Reranking can adjust scores based on deeper understanding
+- Retrieval scores come from the vector store; reranked order comes from Cloudflare
+- There is no local absolute-score threshold gate: a successful rerank call is used as-is
 
 **Hybrid Search Approach:**
 - **Vector Search**: Primary semantic matching using BGE-small-en-v1.5 embeddings
 - **Keyword Filtering**: Secondary filtering based on Planner-extracted entities
-- **Reranking**: Optional cross-encoder for precision scoring
+- **Reranking**: Cloudflare BGE reranker, optional via `RERANK_ENABLED`
 - **Why Hybrid**: Combines semantic understanding with keyword precision for niche content
 
 ### 3. Thinker Node (`thinker.py`)
@@ -150,9 +150,10 @@ python -m core.rag.rag --phase thinker --file fetcher_output.json
 ## Integration Points
 
 ### With Embedding Module:
-- Uses same BGE-small-en-v1.5 model for consistent embeddings
-- Leverages RedisVectorStore for semantic search
-- Maintains chunk metadata for filtering
+- Corpus vectors are produced locally with BGE-small-en-v1.5 and manually seeded into local Redis Stack or Upstash Vector
+- Query vectors use Cloudflare Workers AI `@cf/baai/bge-small-en-v1.5`, kept in the same 384-dimensional space
+- The reranker is Cloudflare `@cf/baai/bge-reranker-base`; run `python -m test.manual_bge_compatibility` to recheck dimensional and directional compatibility
+- Leverages RedisVectorStore for semantic search and maintains chunk metadata for filtering
 
 ### With History Module:
 - Chat history integration for query condensation
@@ -162,17 +163,50 @@ python -m core.rag.rag --phase thinker --file fetcher_output.json
 ## Performance Features
 
 - **Latency Tracking**: Each node records execution time in milliseconds
-- **Warmup**: Pre-loads models and tests connections on initialization
-- **Fallback Systems**: Graceful degradation when external services unavailable
-- **Batch Processing**: Efficient handling of multiple queries in fetcher
+- **Warmup**: Tests Redis/Upstash connections on initialization
+- **Fallback Systems**: A failed rerank call keeps vector-search order and is traced; query-embedding failures skip that query without local inference
+- **Batch Processing**: One Cloudflare rerank request per non-empty query
 
 ## Configuration
 
 Key settings in environment configuration:
 - `PLANNER_AGENT`: Enable/disable LLM-based planning
-- `RERANK_ENABLED`: Toggle cross-encoder reranking
+- `RERANK_ENABLED`: Toggle Cloudflare reranking
+- `RERANK_TOP_K`: Candidate count fetched before reranking
 - `RAG_HISTORY_WINDOW`: Number of previous turns to consider
-- Model names and API endpoints for each component
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID (regular environment variable)
+- `CLOUDFLARE_AUTH_TOKEN`: Workers AI API token; required locally and at runtime
+
+Model IDs are fixed in `core/inference/cloudflare_workers_ai.py`:
+`@cf/baai/bge-small-en-v1.5` for query embeddings and
+`@cf/baai/bge-reranker-base` for reranking.
+
+### Credentials and deployment
+
+- **Local**: put `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AUTH_TOKEN` in
+  `core/.env`. Local RAG requests call the same Cloudflare APIs as production.
+- **Cloud Run**: the workflow passes `CLOUDFLARE_ACCOUNT_ID` as a normal
+  environment variable and exposes `CLOUDFLARE_AUTH_TOKEN` from GCP Secret
+  Manager secret `providence-cloudflare-auth-token`. The token is not duplicated
+  in GitHub Actions secrets.
+- **IAM**: the Cloud Run runtime service account must be able to read
+  `providence-cloudflare-auth-token` (for example, Secret Manager Secret
+  Accessor on that secret).
+- **Cloudflare token scope**: the API token needs Workers AI permission for the
+  account; the account also needs Workers AI enabled with its applicable
+  usage/billing limits.
+
+Only RAG-time query embedding and reranking are cloud-backed. Corpus embedding
+(`core/embedding/embed.py`, `ptv2_embed.ipynb`) stays local, and seeding to
+local Redis Stack or Upstash remains a manual workflow described in
+[embedding.md](embedding.md).
+
+### Manual acceptance
+
+No repository deployment/IAM test exists. After deploying, confirm the runtime
+identity can read `providence-cloudflare-auth-token`, then run a RAG request
+against the deployed service and verify query embedding and reranking complete
+(for example, via the fetcher trace timings and `rerank_model_calls`).
 
 The LangGraph architecture provides a robust, extensible foundation for the RAG pipeline, enabling clear separation of concerns and easy maintenance of each processing stage.
 

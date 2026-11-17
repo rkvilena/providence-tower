@@ -2,15 +2,20 @@
 
 ## Overview
 
-Converts chunked markdown into vector embeddings for Redis storage, supporting both local processing and Colab workflows.
+Converts chunked markdown into vector embeddings for Redis storage, supporting both local processing and Colab workflows. Corpus vectors are still produced with the local BGE model; only RAG-time query embedding and reranking run on Cloudflare Workers AI.
 
 ## Module Structure
 
 - `embed.py` - CLI for local embedding operations
-- `embedding_service.py` - Core embedding logic
+- `embedding_service.py` - Core local BGE embedding logic
+- `schema.py` - Lightweight `ChunkDocument` model (no PyTorch imports)
 - `redis_store.py` - Redis vector store interface
-- `seed_embeddings.py` - Import Colab exports to Redis
+- `seed_embeddings.py` - Import Colab exports to Redis Stack or Upstash
 - `ptv2_embed.ipynb` - Colab notebook for high-performance processing
+
+Local model dependencies live in `core/requirements-embedding.txt`, which layers
+on `core/requirements.txt`. The Cloud Run API image installs only the runtime
+requirements and no longer downloads model weights at build time.
 
 ## Model Evolution
 
@@ -27,6 +32,10 @@ Converts chunked markdown into vector embeddings for Redis storage, supporting b
 
 ### Local Processing
 
+```bash
+pip install -r core/requirements-embedding.txt
+```
+
 ```python
 embedding_service = EmbeddingService(
     model_name="BAAI/bge-small-en-v1.5",
@@ -36,7 +45,7 @@ embedding_service = EmbeddingService(
 ```
 
 1. **Load**: `load_documents_from_directory("./chunked_md")`
-2. **Filter**: Skip chunks <50 characters
+2. **Filter**: Skip chunks <60 characters
 3. **Embed**: Batch processing with configurable sizes
 4. **Store**: Redis vector storage with metadata
 
@@ -53,9 +62,19 @@ embedding_service = EmbeddingService(
 
 ### Redis Seeding
 
+The seeder writes through the existing store factory, so the same command
+targets local Redis Stack or Upstash Vector depending on the environment:
+
 ```bash
 python core/embedding/seed_embeddings.py --export-dir ./embed_chunk
 ```
+
+- `VECTOR_STORE_PROVIDER=redis_stack`: local Redis Stack (`REDIS_*` settings).
+- `VECTOR_STORE_PROVIDER=upstash`: Upstash (`UPSTASH_VECTOR_URL` and
+  `UPSTASH_VECTOR_TOKEN`).
+
+Seeding remains a manual, local step. Embeddings are not uploaded to Cloudflare
+and the corpus is not automatically re-embedded.
 
 ## Key Features
 
@@ -63,6 +82,7 @@ python core/embedding/seed_embeddings.py --export-dir ./embed_chunk
 - **Quality**: Filters short chunks, batch processing
 - **Redis**: Automatic index management, metadata preservation
 - **Hybrid**: Local dev + Colab production workflow
+- **Runtime split**: Local BGE for corpus vectors; Cloudflare BGE for queries
 
 ## Usage Examples
 
@@ -89,7 +109,22 @@ for batch_docs, batch_vectors in embedding_service.iter_embeddings_by_batch(docs
 
 ## RAG Integration
 
-Enables semantic search with metadata filtering using 384-dimensional vectors optimized for game content.
+Corpus vectors are consumed by semantic search with metadata filtering using
+384-dimensional vectors optimized for game content. At request time the Fetcher
+embeds each query through Cloudflare Workers AI `@cf/baai/bge-small-en-v1.5`
+(`mean` pooling) and reranks through `@cf/baai/bge-reranker-base`; see
+[rag.md](rag.md).
+
+Before relying on the mixed-provider path, run the manual compatibility smoke
+check with Cloudflare credentials configured:
+
+```bash
+python -m test.manual_bge_compatibility
+```
+
+It compares local and Cloudflare vectors for one fixed sample and confirms both
+are 384-dimensional and directionally compatible. It is a compatibility check,
+not a model-quality benchmark.
 
 ## Performance
 

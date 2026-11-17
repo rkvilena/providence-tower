@@ -1,0 +1,12 @@
+# Local corpus-preparation dependencies.
+#
+# Used by core/embedding/embed.py, core/embedding/ptv2_embed.ipynb, and
+# test/manual_bge_compatibility.py. The Cloud Run API image installs only
+# core/requirements.txt; RAG-time embeddings and reranking run on Cloudflare.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+-r requirements.txt
+
+torch==2.2.2
+sentence-transformers<3.0.0
+transformers<4.40.0

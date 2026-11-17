@@ -39,17 +39,18 @@ You can check a detailed implementation documentation through [docs](docs/) fold
 ## 🚀 Tech Stack
 
 - **Framework**: LangGraph
-- **Embeddings**: BGE-small-en-v1.5
-- **Vector Store**: Redis
+- **Embeddings**: BGE-small-en-v1.5 (local corpus preparation; Cloudflare Workers AI `@cf/baai/bge-small-en-v1.5` for RAG query embeddings)
+- **Vector Store**: Redis (local Redis Stack or Upstash Vector)
 - **LLM**: OpenAI GPT (Planner/Thinker)
-- **Reranking**: Cross-Encoder/ms-marco-MiniLM-L-6-v2
-- **Language**: Python 3.10+
+- **Reranking**: Cloudflare Workers AI `@cf/baai/bge-reranker-base`
+- **Language**: Python 3.11+
 
 ## 📋 Prerequisites
 
 - Python 3.10 or higher
 - Redis server (with RedisStack for vector search)
 - OpenAI API key
+- Cloudflare account ID and Workers AI API token (RAG query embeddings and reranking run in the cloud)
 
 ## 🛠️ Installation & Setup
 
@@ -63,7 +64,11 @@ python -m venv .venv
 
 2. **Install dependencies:**
 ```bash
-pip install -r requirements.txt
+# API/runtime dependencies (no PyTorch/SentenceTransformers)
+pip install -r core/requirements.txt
+
+# Only for local corpus preparation / BGE comparison checks
+pip install -r core/requirements-embedding.txt
 ```
 
 3. **Setup Redis Vector Store with Docker:**
@@ -74,12 +79,17 @@ docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack:lat
 
 4. **Configure environment:**
 ```bash
-cp .env.example .env
-# Edit .env with your settings:
+cp core/example.env core/.env
+# Edit core/.env with your settings:
 # OPENAI_API_KEY=your-key-here
+# CLOUDFLARE_ACCOUNT_ID=your-account-id
+# CLOUDFLARE_AUTH_TOKEN=your-workers-ai-api-token
 # REDIS_HOST=localhost
 # REDIS_PORT=6379
 ```
+The Cloudflare token needs the Workers AI permission for the account. Local
+development calls the same Cloudflare APIs as production; there is no local
+query-embedding or reranking fallback.
 
 5. **Seed embeddings:**
 ```bash
@@ -127,10 +137,16 @@ providencetower-v2/
 
 Key environment variables:
 - `OPENAI_API_KEY`: OpenAI API key for LLM components
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account that owns the Workers AI models
+- `CLOUDFLARE_AUTH_TOKEN`: Workers AI API token (in Cloud Run: GCP Secret Manager secret `providence-cloudflare-auth-token`)
 - `REDIS_HOST`, `REDIS_PORT`: Redis connection details
 - `PLANNER_AGENT`: Enable/disable LLM-based query planning
-- `RERANK_ENABLED`: Toggle cross-encoder reranking
+- `RERANK_ENABLED`: Toggle Cloudflare reranking
 - `RAG_HISTORY_WINDOW`: Conversation history length
+
+Only RAG-time query embedding and reranking are cloud-backed. Corpus
+preparation (`core/embedding/embed.py`, `ptv2_embed.ipynb`) and manual vector
+seeding stay local; see [docs/embedding.md](docs/embedding.md).
 
 ## 📊 Monitoring
 

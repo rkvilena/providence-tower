@@ -2,29 +2,18 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
 import numpy as np
 import torch
 
+from core.embedding.schema import ChunkDocument
 from core.env import settings
 from sentence_transformers import SentenceTransformer
 
 
 LOGGER = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class ChunkDocument:
-    chunk_id: str
-    page_id: int
-    page_title: str
-    section: str
-    subsection: str
-    source_file: str
-    text: str
 
 
 class EmbeddingService:
