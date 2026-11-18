@@ -7,16 +7,23 @@ Usage (from project root):
 from __future__ import annotations
 
 import argparse
+import subprocess
 import time
 import traceback
 
 from core.api.service import RagService
 from core.env import settings
+from core.inference.cloudflare_workers_ai import (
+    CLOUDFLARE_EMBEDDING_MODEL_ID,
+    CLOUDFLARE_RERANK_MODEL_ID,
+)
 
+from test.benchmark_report import generate_report
 from test.benchmark_schemas import (
     TEST_DIR,
     BenchmarkResult,
     RetrievalMetrics,
+    RunMetadata,
     file_sha256,
     load_jsonl,
     now_utc_iso,
@@ -39,6 +46,37 @@ def load_dataset(path) -> list[dict]:
     return rows
 
 
+def _git_output(*args: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=TEST_DIR.parent,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return completed.stdout.strip()
+
+
+def collect_run_metadata() -> RunMetadata:
+    """Collect available, non-secret run-identifying details."""
+    revision = _git_output("rev-parse", "HEAD")
+    status = _git_output("status", "--porcelain", "--untracked-files=no")
+    return RunMetadata(
+        code_revision=revision,
+        code_dirty=None if status is None else bool(status),
+        corpus_version=None,
+        index_version=None,
+        embedding_model=settings.EMBEDDING_MODEL or None,
+        query_embedding_model=CLOUDFLARE_EMBEDDING_MODEL_ID,
+        reranker_model=CLOUDFLARE_RERANK_MODEL_ID if settings.RERANK_ENABLED else None,
+        generation_model=settings.THINKER_MODEL or None,
+    )
+
+
 def compute_retrieval_metrics(
     expected: list[str], retrieved: list[str]
 ) -> RetrievalMetrics:
@@ -48,11 +86,26 @@ def compute_retrieval_metrics(
     recall = len(intersection) / len(exp_set) if exp_set else 0.0
     hit = bool(intersection)
     full_recall = bool(exp_set) and exp_set <= ret_set
+
+    # Ranking metrics use the first occurrence of each retrieved chunk ID.
+    ranked_unique = list(dict.fromkeys(retrieved))
+    first_relevant_rank = next(
+        (rank for rank, chunk_id in enumerate(ranked_unique, start=1)
+         if chunk_id in exp_set),
+        None,
+    )
+    mrr = 1.0 / first_relevant_rank if first_relevant_rank else 0.0
+    recall_at_5 = (
+        len(exp_set & set(ranked_unique[:5])) / len(exp_set) if exp_set else 0.0
+    )
+
     return RetrievalMetrics(
         precision=round(precision, 4),
         recall=round(recall, 4),
         hit=hit,
         full_recall=full_recall,
+        mrr=round(mrr, 4),
+        recall_at_5=round(recall_at_5, 4),
     )
 
 
@@ -71,6 +124,9 @@ def run_question(service: RagService, row: dict) -> BenchmarkResult:
         result.total_execution_ms = round((time.perf_counter() - start) * 1000, 2)
         result.actual_answer = state.thinker_state.response
         result.retrieved_chunk_ids = [c.chunk_id for c in state.fetcher_state.chunks]
+        result.candidate_chunk_ids_by_query = dict(
+            state.fetcher_state.candidate_chunk_ids_by_query
+        )
         result.used_chunk_ids = list(state.thinker_state.used_chunk_ids)
         result.node_latencies_ms = dict(state.node_latencies_ms)
         fs = state.fetcher_state
@@ -215,6 +271,14 @@ def main() -> None:
     print(f"Planner mode:      {settings.PLANNER_MODE}")
     print(f"Planner model:     {settings.PLANNER_MODEL}")
     print(f"Reranker:          {'ON' if settings.RERANK_ENABLED else 'OFF'}")
+    run_metadata = collect_run_metadata()
+    revision = run_metadata.code_revision or "unavailable"
+    dirty = (
+        " (dirty working tree)"
+        if run_metadata.code_dirty is True
+        else ""
+    )
+    print(f"Code revision:     {revision[:12]}{dirty}")
     print()
 
     service = RagService()
@@ -261,7 +325,9 @@ def main() -> None:
         completed_at,
         selection=selection,
         dataset_size=len(all_rows),
+        run_metadata=run_metadata,
     )
+    print(f"Report: {generate_report(output_dir)}")
 
 
 def write_outputs(
@@ -275,6 +341,7 @@ def write_outputs(
     *,
     selection: dict | None = None,
     dataset_size: int = 0,
+    run_metadata: RunMetadata | None = None,
 ) -> None:
     summary = summarize(
         run_id=run_id,
@@ -288,6 +355,7 @@ def write_outputs(
         completed_at=completed_at,
         selection=selection,
         dataset_size=dataset_size,
+        run_metadata=run_metadata,
     )
 
     save_jsonl(output_dir / "raw-results.jsonl", [r.to_dict() for r in results])
@@ -307,6 +375,9 @@ def write_outputs(
     print(
         f"Retrieval precision={ret.mean_precision:.3f}  recall={ret.mean_recall:.3f}  "
         f"hit_rate={ret.hit_rate:.2f}  full_recall={ret.full_recall_rate:.2f}"
+    )
+    print(
+        f"Ranking   MRR={ret.mean_mrr:.3f}  Recall@5={ret.mean_recall_at_5:.3f}"
     )
 
 

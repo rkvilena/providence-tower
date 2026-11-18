@@ -30,6 +30,8 @@ class RetrievalMetrics:
     recall: float = 0.0
     hit: bool = False
     full_recall: bool = False
+    mrr: float = 0.0
+    recall_at_5: float = 0.0
 
 
 @dataclass
@@ -50,6 +52,7 @@ class BenchmarkResult:
     actual_answer: str = ""
     total_execution_ms: float = 0.0
     retrieved_chunk_ids: list[str] = field(default_factory=list)
+    candidate_chunk_ids_by_query: dict[str, list[str]] = field(default_factory=dict)
     used_chunk_ids: list[str] = field(default_factory=list)
     used_chunk_recall: float = 0.0
     retrieval: RetrievalMetrics = field(default_factory=RetrievalMetrics)
@@ -79,6 +82,8 @@ class RetrievalSummary:
     mean_recall: float = 0.0
     hit_rate: float = 0.0
     full_recall_rate: float = 0.0
+    mean_mrr: float = 0.0
+    mean_recall_at_5: float = 0.0
 
 
 @dataclass
@@ -93,6 +98,18 @@ class TokensSummary:
     available: bool = False
     mean_total_tokens: float | None = None
     total_tokens: int = 0
+
+
+@dataclass
+class RunMetadata:
+    code_revision: str | None = None
+    code_dirty: bool | None = None
+    corpus_version: str | None = None
+    index_version: str | None = None
+    embedding_model: str | None = None
+    query_embedding_model: str | None = None
+    reranker_model: str | None = None
+    generation_model: str | None = None
 
 
 @dataclass
@@ -111,6 +128,7 @@ class BenchmarkSummary:
     completed_at: str = ""
     dataset_size: int = 0
     selection: dict[str, Any] | None = None
+    run_metadata: RunMetadata = field(default_factory=RunMetadata)
     performance: PerformanceSummary = field(default_factory=PerformanceSummary)
     retrieval: RetrievalSummary = field(default_factory=RetrievalSummary)
     quality: QualitySummary = field(default_factory=QualitySummary)
@@ -183,6 +201,7 @@ def summarize(
     completed_at: str = "",
     selection: dict[str, Any] | None = None,
     dataset_size: int = 0,
+    run_metadata: RunMetadata | None = None,
 ) -> BenchmarkSummary:
     """Aggregate per-query results into a run-level summary."""
     ok = [r for r in results if r.status == "success"]
@@ -213,6 +232,7 @@ def summarize(
         completed_at=completed_at,
         dataset_size=dataset_size,
         selection=selection,
+        run_metadata=run_metadata or RunMetadata(),
         performance=PerformanceSummary(
             mean_ms=mean(times),
             median_ms=percentile(times, 50),
@@ -227,6 +247,8 @@ def summarize(
             full_recall_rate=sum(1 for r in ok if r.retrieval.full_recall) / len(ok)
             if ok
             else 0.0,
+            mean_mrr=mean([r.retrieval.mrr for r in ok]),
+            mean_recall_at_5=mean([r.retrieval.recall_at_5 for r in ok]),
         ),
         quality=QualitySummary(
             mean_answer_relevancy=mean_opt([r.quality.answer_relevancy for r in ok]),
