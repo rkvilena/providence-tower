@@ -137,6 +137,29 @@ def make_fetcher(reranker) -> FetcherNode:
     return fetcher
 
 
+def test_fetcher_records_candidate_pool_before_rerank():
+    fetcher = make_fetcher(None)
+    fetcher._search_all_queries = lambda state, queries, entities: (
+        [],
+        [
+            ("q1", [make_hit("a1", "alpha"), make_hit("a2", "bravo")]),
+            ("q2", [make_hit("a1", "alpha again"), make_hit("b1", "charlie")]),
+        ],
+    )
+    state = RagState(
+        session_id="s",
+        user_query="q",
+        planner_state=PlannerState(planned_queries=["q1", "q2"]),
+    )
+
+    fetcher.run(state)
+
+    assert state.fetcher_state.candidate_chunk_ids_by_query == {
+        "q1": ["a1", "a2"],
+        "q2": ["a1", "b1"],
+    }
+
+
 def test_fetcher_reports_one_model_call_per_non_empty_query():
     client = FakeCloudflareClient()
     fetcher = make_fetcher(make_reranker(client))

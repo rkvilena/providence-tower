@@ -85,6 +85,7 @@ class FetcherState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     chunks: list[ChunkHit] = Field(default_factory=list)
+    candidate_chunk_ids_by_query: dict[str, list[str]] = Field(default_factory=dict)
     query_timings: list[QueryFetchTiming] = Field(default_factory=list)
     totals: FetchTimingTotals | None = None
 

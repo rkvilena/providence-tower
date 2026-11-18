@@ -70,6 +70,14 @@ class FetcherNode:
             state, queries, entities
         )
 
+        # Preserve the pre-rerank candidate pool per query so benchmark runs
+        # can tell whether comparisons used the same candidates.
+        candidate_chunk_ids_by_query: dict[str, list[str]] = {}
+        for query, query_hits in hits_by_query:
+            candidate_chunk_ids_by_query.setdefault(query, []).extend(
+                hit.chunk_id for hit in query_hits
+            )
+
         # Best-ranked hit per chunk across all queries. Lower rank wins;
         # equal ranks fall back to the lower retrieval score.
         hits_by_chunk_id: dict[str, ChunkHit] = {}
@@ -103,7 +111,10 @@ class FetcherNode:
             rerank_model_calls=outcome.model_calls,
         )
         state.fetcher_state = FetcherState(
-            chunks=sorted_hits, query_timings=query_timings, totals=totals
+            chunks=sorted_hits,
+            candidate_chunk_ids_by_query=candidate_chunk_ids_by_query,
+            query_timings=query_timings,
+            totals=totals,
         )
 
         state.add_trace(
