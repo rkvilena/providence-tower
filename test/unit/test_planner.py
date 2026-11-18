@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from core.env import settings
 from core.rag.planner import (
+    LlmPlanner,
     ManualPlanner,
     PlannerNode,
     collapse_to_noun_phrase,
@@ -9,7 +10,7 @@ from core.rag.planner import (
     dedupe_queries,
     extract_entities,
 )
-from core.rag.schema import PlannerState, RagState
+from core.rag.schema import HistoryTurn, PlannerState, RagState
 
 
 import pytest
@@ -22,8 +23,8 @@ def restore_planner_settings():
     settings.PLANNER_MODE, settings.PLANNER_AGENT = snapshot
 
 
-def make_state(query: str, history_count: int = 0) -> RagState:
-    return RagState(session_id="test", user_query=query)
+def make_state(query: str, history: list[HistoryTurn] | None = None) -> RagState:
+    return RagState(session_id="test", user_query=query, history=history or [])
 
 
 # ---- shared helpers ---------------------------------------------------------
@@ -97,6 +98,65 @@ def test_ambiguous_reference_with_history_routes_to_llm():
 def test_ambiguous_reference_without_history_stays_manual():
     result = classify_complexity("Where can I find it?", history_count=0)
     assert result.use_llm is False
+
+
+def test_possessive_reference_with_history_routes_to_llm():
+    result = classify_complexity("List me some of his music", history_count=1)
+    assert result.use_llm is True
+    assert result.reason == "ambiguous_reference_with_history"
+
+
+def test_short_clarification_reply_with_history_routes_to_llm():
+    result = classify_complexity("Ys Origin", history_count=1)
+    assert result.use_llm is True
+    assert result.reason == "clarification_reply_with_history"
+
+
+def test_short_reply_without_history_stays_manual():
+    result = classify_complexity("Ys Origin", history_count=0)
+    assert result.use_llm is False
+
+
+def test_short_question_with_history_stays_manual():
+    result = classify_complexity("What is Ys?", history_count=1)
+    assert result.use_llm is False
+
+
+def test_classify_complexity_accepts_history_turns():
+    history = [HistoryTurn(q="Who is Ryo Takeshita?", a="A composer.")]
+    result = classify_complexity("Ys Origin", history)
+    assert result.use_llm is True
+    assert result.reason == "clarification_reply_with_history"
+
+
+def test_planner_llm_payload_includes_history_and_context_rules():
+    captured: dict = {}
+
+    class FakeStructuredLlm:
+        def invoke(self, messages):
+            captured["messages"] = messages
+            return PlannerState(
+                condensed_query="Ys Origin music track titles",
+                planned_queries=["Ys Origin music track titles"],
+                source="llm",
+            )
+
+    planner = LlmPlanner.__new__(LlmPlanner)
+    planner.structured_llm = FakeStructuredLlm()
+    state = make_state(
+        "Ys Origin",
+        history=[HistoryTurn(q="Give me a music title", a="Which game?")],
+    )
+
+    result = planner._invoke_llm(state)
+
+    assert result.condensed_query == "Ys Origin music track titles"
+    system_message, human_message = captured["messages"]
+    assert "possessives" in system_message.content
+    assert "short reply" in system_message.content
+    assert '"history": [{"q": "Give me a music title", "a": "Which game?"}]' in (
+        human_message.content
+    )
 
 
 # ---- ManualPlanner -----------------------------------------------------------
@@ -211,6 +271,21 @@ def test_mode_both_routes_complex_to_llm():
     result = node.run(state)
     assert result.planner_state.source == "llm"
     assert fake.calls == [state.user_query]
+
+
+def test_mode_both_routes_follow_up_with_history_to_llm():
+    node = build_node("both")
+    fake = FakeLlmPlanner()
+    node.llm = fake
+
+    state = make_state(
+        "Ys Origin",
+        history=[HistoryTurn(q="Give me a music title", a="Which game?")],
+    )
+    result = node.run(state)
+
+    assert result.planner_state.source == "llm"
+    assert fake.calls == ["Ys Origin"]
 
 
 def test_mode_both_without_llm_uses_manual_for_complex():
