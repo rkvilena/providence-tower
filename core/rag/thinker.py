@@ -159,11 +159,9 @@ class ThinkerNode:
         if structured_llm is None:
             raise RuntimeError("No structured Thinker LLM is available.")
         chunks_payload = self._build_chunks_payload(state.fetcher_state.chunks, timing)
-        user_payload = {
-            "user_query": state.user_query,
-            "chunks": chunks_payload,
-        }
-        user_prompt = self._build_user_thinker_prompt(user_payload)
+        user_prompt = self._build_user_thinker_prompt(
+            self._build_user_payload(state, chunks_payload)
+        )
         timing.input_chars = len(THINKER_PROMPT) + len(user_prompt)
         timing.estimated_input_tokens = self._estimate_tokens(
             THINKER_PROMPT
@@ -236,12 +234,40 @@ class ThinkerNode:
             state.add_trace(f"Thinker streamed JSON invalid: {exc}. Using fallback.")
             return self._fallback_thinker(state)
 
+    def _build_user_payload(
+        self, state: RagState, chunks_payload: list[dict]
+    ) -> dict:
+        """Build the Thinker payload with the raw message and resolved intent."""
+        return {
+            "user_message": state.user_query,
+            "resolved_question": state.planner_state.condensed_query
+            or state.user_query,
+            "conversation_history": [
+                {"q": turn.q, "a": turn.a}
+                for turn in state.history[-settings.RAG_HISTORY_WINDOW :]
+            ],
+            "chunks": chunks_payload,
+        }
+
+    def _history_fingerprint(self, state: RagState) -> str:
+        """Stable representation of the context that shaped this request."""
+        return json.dumps(
+            [
+                {"q": turn.q, "a": turn.a}
+                for turn in state.history[-settings.RAG_HISTORY_WINDOW :]
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
     def _cache_key(self, state: RagState) -> str:
         """Deterministic cache key over query, context, model, and config."""
         chunk_ids = [c.chunk_id for c in state.fetcher_state.chunks]
         fingerprint = "|".join(
             [
                 state.user_query.strip().lower(),
+                (state.planner_state.condensed_query or "").strip().lower(),
+                self._history_fingerprint(state),
                 ",".join(chunk_ids),
                 settings.THINKER_MODEL,
                 settings.THINKER_FAST_MODEL,

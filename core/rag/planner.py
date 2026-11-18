@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 
 from core.env import settings
 from core.rag.prompt import PLANNER_PROMPT
-from core.rag.schema import PlannerState, RagState
+from core.rag.schema import HistoryTurn, PlannerState, RagState
 
 
 LOGGER = logging.getLogger(__name__)
@@ -46,9 +46,53 @@ AMBIGUOUS_REFERENCES = {
     "them",
     "those",
     "these",
+    # Possessives refer back to the previously discussed entity just as much
+    # as the subject pronouns above.
+    "his",
+    "her",
+    "hers",
+    "their",
+    "theirs",
+    "its",
 }
-FOLLOW_UP_MARKERS = ("what about", "the other", "that one", "other one", "again")
+FOLLOW_UP_MARKERS = (
+    "what about",
+    "the other",
+    "that one",
+    "other one",
+    "again",
+    # Users often answer the assistant's clarification with a bare reference
+    # to a previously offered option.
+    "the first",
+    "the second",
+    "the last",
+)
 MULTI_PART_SPLIT = re.compile(r"\s+and\s+", flags=re.IGNORECASE)
+QUESTION_OPENERS = {
+    "who",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
+    "which",
+    "whose",
+    "whom",
+    "is",
+    "are",
+    "was",
+    "were",
+    "does",
+    "do",
+    "did",
+    "can",
+    "could",
+    "should",
+    "would",
+    "will",
+    "tell",
+    "list",
+}
 
 ENTITY_PATTERN = re.compile(r"\b([A-Z][\w'&-]*(?:\s+(?:[A-Z][\w'&-]*|[IVX]+))*)\b")
 
@@ -61,7 +105,30 @@ class QueryComplexity:
     reason: str
 
 
-def classify_complexity(query: str, history_count: int) -> QueryComplexity:
+def is_context_dependent_reply(query: str) -> bool:
+    """Return True when a query only makes sense relative to prior turns.
+
+    Covers short noun-phrase replies to the assistant's previous clarification
+    question (for example, answering "Which game?" with "Ys Origin") without
+    treating ordinary short questions as follow-ups.
+    """
+    words = query.strip().split()
+    if not words or len(words) > 3:
+        return False
+    first_word = re.findall(r"[a-z]+", words[0].lower())
+    if first_word and first_word[0] in QUESTION_OPENERS:
+        return False
+    # A bare answer is a short phrase, usually naming an option the assistant
+    # just offered. Requiring a capitalized token avoids catching fragments.
+    return any(word[:1].isupper() for word in words)
+
+
+def classify_complexity(
+    query: str,
+    history: list[HistoryTurn] | None = None,
+    *,
+    history_count: int | None = None,
+) -> QueryComplexity:
     """Decide locally whether a query needs LLM planning.
 
     Conservative by design: anything unclear is escalated to the LLM.
@@ -79,13 +146,20 @@ def classify_complexity(query: str, history_count: int) -> QueryComplexity:
     if len(parts) > 1 and all(len(p.split()) >= 3 for p in parts):
         return QueryComplexity(use_llm=True, reason="multi_part_request")
 
-    if history_count > 0:
+    has_history = (
+        history_count is not None and history_count > 0
+    ) or bool(history)
+    if has_history:
         if any(marker in text for marker in FOLLOW_UP_MARKERS):
             return QueryComplexity(use_llm=True, reason="follow_up_with_history")
         words = set(re.findall(r"[a-z]+", text))
         if words & AMBIGUOUS_REFERENCES:
             return QueryComplexity(
                 use_llm=True, reason="ambiguous_reference_with_history"
+            )
+        if is_context_dependent_reply(query):
+            return QueryComplexity(
+                use_llm=True, reason="clarification_reply_with_history"
             )
 
     if len(query.split()) > 30:
@@ -275,7 +349,7 @@ class PlannerNode:
 
     def _plan_by_complexity(self, state: RagState) -> PlannerState:
         """Route simple queries to the manual planner, complex ones to the LLM."""
-        complexity = classify_complexity(state.user_query, len(state.history))
+        complexity = classify_complexity(state.user_query, state.history)
         state.add_trace(f"Planner route: mode=both reason={complexity.reason}")
         if complexity.use_llm and self.llm is not None:
             return self.llm.plan(state)
